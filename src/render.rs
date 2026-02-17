@@ -17,7 +17,7 @@
 /// - Unicode box-drawing (default): `┌ ┐ └ ┘ ─ │ ├ ┤ ┬ ┴ ┼ ► ▼ ◄ ▲`
 /// - ASCII fallback:                `+ + + + - | + + + + + > v < ^`
 
-use crate::ast::{EdgeType, NodeShape};
+use crate::ast::{Direction, EdgeType, NodeShape};
 use crate::graph::GraphIR;
 use crate::layout::{LayoutNode, RoutedEdge, COMPOUND_PREFIX, DUMMY_PREFIX};
 
@@ -610,6 +610,132 @@ fn paint_edge(canvas: &mut Canvas, re: &RoutedEdge, edge_type: &EdgeType) {
     }
 }
 
+// ─── Direction Transform Helpers ──────────────────────────────────────────────
+
+/// Transpose layout coordinates: swap x↔y and width↔height for all nodes and
+/// edge waypoints.
+///
+/// Used for LR/RL directions: the Sugiyama layout ran with swapped node
+/// dimensions (width↔height), treating layers as columns instead of rows.
+/// After layout, this function transposes the coordinate space so that what
+/// was the "vertical" Sugiyama axis becomes the horizontal axis on screen.
+pub fn transpose_layout(
+    nodes: &mut Vec<LayoutNode>,
+    edges: &mut Vec<RoutedEdge>,
+) {
+    for n in nodes.iter_mut() {
+        std::mem::swap(&mut n.x, &mut n.y);
+        std::mem::swap(&mut n.width, &mut n.height);
+    }
+    for re in edges.iter_mut() {
+        for p in re.waypoints.iter_mut() {
+            std::mem::swap(&mut p.x, &mut p.y);
+        }
+    }
+}
+
+/// Remap a single character for vertical flip (BT direction).
+///
+/// Characters that distinguish top from bottom are swapped; symmetric
+/// characters (─, │, ┼, arrows left/right) are unchanged.
+fn remap_char_vertical(c: char) -> char {
+    match c {
+        // Arrows: ▼ ↔ ▲
+        '▼' => '▲',
+        '▲' => '▼',
+        'v' => '^',
+        '^' => 'v',
+        // Corners: top-left ↔ bottom-left, top-right ↔ bottom-right
+        '┌' => '└',
+        '└' => '┌',
+        '┐' => '┘',
+        '┘' => '┐',
+        // Rounded corners
+        '╭' => '╰',
+        '╰' => '╭',
+        '╮' => '╯',
+        '╯' => '╮',
+        // Tees: ┬ ↔ ┴
+        '┬' => '┴',
+        '┴' => '┬',
+        // Symmetric: ─ │ ├ ┤ ┼ ► ◄ > < stay the same
+        other => other,
+    }
+}
+
+/// Remap a single character for horizontal flip (RL direction).
+///
+/// Characters that distinguish left from right are swapped; symmetric
+/// characters (─, │, ┼, arrows up/down) are unchanged.
+fn remap_char_horizontal(c: char) -> char {
+    match c {
+        // Arrows: ► ↔ ◄
+        '►' => '◄',
+        '◄' => '►',
+        '>' => '<',
+        '<' => '>',
+        // Corners: top-left ↔ top-right, bottom-left ↔ bottom-right
+        '┌' => '┐',
+        '┐' => '┌',
+        '└' => '┘',
+        '┘' => '└',
+        // Rounded corners
+        '╭' => '╮',
+        '╮' => '╭',
+        '╰' => '╯',
+        '╯' => '╰',
+        // Tees: ├ ↔ ┤
+        '├' => '┤',
+        '┤' => '├',
+        // Symmetric: ─ │ ┬ ┴ ┼ ▼ ▲ v ^ stay the same
+        other => other,
+    }
+}
+
+/// Flip a rendered graph string vertically for BT direction.
+///
+/// Reverses the row order of the output and remaps characters that have a
+/// visual "up" vs "down" distinction (arrows, corners, tees).
+pub fn flip_vertical(s: &str) -> String {
+    let lines: Vec<&str> = s.lines().collect();
+    let flipped: Vec<String> = lines
+        .iter()
+        .rev()
+        .map(|line| line.chars().map(remap_char_vertical).collect())
+        .collect();
+    let mut out = flipped.join("\n");
+    out.push('\n');
+    out
+}
+
+/// Flip a rendered graph string horizontally for RL direction.
+///
+/// Reverses each row's character order and remaps characters that have a
+/// visual "left" vs "right" distinction (arrows, corners, tees).
+pub fn flip_horizontal(s: &str) -> String {
+    // Determine the maximum display width across all lines.
+    let lines: Vec<&str> = s.lines().collect();
+    let max_width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+
+    let flipped: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            // Pad line to max_width, reverse, remap chars, then trim trailing spaces.
+            let chars: Vec<char> = line.chars().collect();
+            let pad = max_width - chars.len();
+            let mut padded: Vec<char> = chars;
+            padded.extend(std::iter::repeat(' ').take(pad));
+            padded.reverse();
+            let remapped: String = padded.iter().map(|&c| remap_char_horizontal(c)).collect();
+            remapped.trim_end().to_string()
+        })
+        .collect();
+
+    let mut out = flipped.join("\n");
+    out.push('\n');
+    out
+}
+
 // ─── Public Render Entry Point ────────────────────────────────────────────────
 
 /// Compute the canvas dimensions needed to fit all nodes and edge waypoints.
@@ -637,10 +763,15 @@ pub fn canvas_dimensions(layout_nodes: &[LayoutNode], routed_edges: &[RoutedEdge
 /// Render a fully-laid-out graph to a multi-line String.
 ///
 /// # Arguments
-/// * `gir`          — The graph IR (provides node shapes, subgraph membership, edge types).
+/// * `gir`          — The graph IR (provides node shapes, subgraph membership, edge types, direction).
 /// * `layout_nodes` — Positioned nodes from the layout phase (may include dummy nodes).
 /// * `routed_edges` — Routed edges with waypoints from the edge routing phase.
 /// * `unicode`      — `true` for Unicode box-drawing; `false` for ASCII fallback.
+///
+/// Direction transforms applied:
+/// - LR/RL: `transpose_layout` swaps x↔y (layout ran with swapped dimensions).
+/// - BT: `flip_vertical` reverses rows and remaps directional characters.
+/// - RL: `flip_horizontal` (after transpose) reverses columns and remaps chars.
 pub fn render(
     gir: &GraphIR,
     layout_nodes: &[LayoutNode],
@@ -650,6 +781,29 @@ pub fn render(
     use std::collections::HashMap;
 
     let cs = if unicode { CharSet::Unicode } else { CharSet::Ascii };
+
+    // Apply direction-specific coordinate transforms before painting.
+    let (layout_nodes, routed_edges) = match gir.direction {
+        Direction::TD => {
+            // Top-down is the native Sugiyama output — no transform needed.
+            (layout_nodes.to_vec(), routed_edges.to_vec())
+        }
+        Direction::BT => {
+            // Bottom-up: render as TD, then flip the output vertically.
+            // Coordinate transform happens on the rendered string (after paint).
+            (layout_nodes.to_vec(), routed_edges.to_vec())
+        }
+        Direction::LR | Direction::RL => {
+            // Left-right / right-left: layout ran with swapped width↔height.
+            // Transpose coordinate space so Sugiyama "rows" become screen columns.
+            let mut nodes = layout_nodes.to_vec();
+            let mut edges = routed_edges.to_vec();
+            transpose_layout(&mut nodes, &mut edges);
+            (nodes, edges)
+        }
+    };
+    let layout_nodes = layout_nodes.as_slice();
+    let routed_edges = routed_edges.as_slice();
 
     // Separate nodes into categories.
     let has_compounds = layout_nodes.iter().any(|n| n.id.starts_with(COMPOUND_PREFIX));
@@ -709,7 +863,14 @@ pub fn render(
         paint_edge(&mut canvas, re, &re.edge_type);
     }
 
-    canvas.to_string()
+    let rendered = canvas.to_string();
+
+    // Apply post-render flips for directions that need them.
+    match gir.direction {
+        Direction::BT => flip_vertical(&rendered),
+        Direction::RL => flip_horizontal(&rendered),
+        Direction::TD | Direction::LR => rendered,
+    }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

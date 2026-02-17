@@ -667,7 +667,7 @@ const NODE_HEIGHT: usize = 3;  // top-border + text-row + bottom-border
 /// Layout is top-down (TD): x = column, y = row. The renderer transposes for LR.
 /// Dummy nodes are given width 1 to minimise horizontal space consumption.
 pub fn assign_coordinates(ordering: &[Vec<String>], aug: &AugmentedGraph) -> Vec<LayoutNode> {
-    assign_coordinates_padded(ordering, aug, NODE_PADDING, &HashMap::new())
+    assign_coordinates_padded(ordering, aug, NODE_PADDING, &HashMap::new(), &ast::Direction::TD)
 }
 
 // ─── Edge Routing (Orthogonal) ────────────────────────────────────────────────
@@ -1124,7 +1124,7 @@ pub fn full_layout_with_padding(gir: &GraphIR, padding: usize) -> (Vec<LayoutNod
         let (dag, reversed_edges) = remove_cycles(&gir.digraph);
         let aug = insert_dummy_nodes(&dag, &la);
         let ordering = minimise_crossings(&aug);
-        let layout_nodes = assign_coordinates_padded(&ordering, &aug, padding, &HashMap::new());
+        let layout_nodes = assign_coordinates_padded(&ordering, &aug, padding, &HashMap::new(), &gir.direction);
         let routed_edges = route_edges(gir, &layout_nodes, &aug, &reversed_edges);
         return (layout_nodes, routed_edges);
     }
@@ -1138,7 +1138,7 @@ pub fn full_layout_with_padding(gir: &GraphIR, padding: usize) -> (Vec<LayoutNod
     let (dag, reversed_edges) = remove_cycles(&collapsed.digraph);
     let aug = insert_dummy_nodes(&dag, &la);
     let ordering = minimise_crossings(&aug);
-    let layout_nodes = assign_coordinates_padded(&ordering, &aug, padding, &dim_overrides);
+    let layout_nodes = assign_coordinates_padded(&ordering, &aug, padding, &dim_overrides, &gir.direction);
 
     // Expand compound nodes → add member nodes inside
     let expanded = expand_compound_nodes(&layout_nodes, &compounds);
@@ -1159,16 +1159,28 @@ fn label_dimensions(label: &str) -> (usize, usize) {
     (max_w, lines.len())
 }
 
-/// Internal: coordinate assignment with a caller-specified padding value.
+/// Internal: coordinate assignment with a caller-specified padding value and direction.
 ///
 /// `size_overrides` maps node id → (width, height) for compound nodes or
 /// other nodes whose dimensions can't be computed from the label alone.
+///
+/// For LR/RL directions, node width↔height are swapped before layout so
+/// Sugiyama produces a rotated arrangement. The renderer then transposes
+/// (x↔y) to produce the final left-to-right output.
 fn assign_coordinates_padded(
     ordering: &[Vec<String>],
     aug: &AugmentedGraph,
     padding: usize,
     size_overrides: &HashMap<String, (usize, usize)>,
+    direction: &ast::Direction,
 ) -> Vec<LayoutNode> {
+    let is_lr_or_rl = matches!(direction, ast::Direction::LR | ast::Direction::RL);
+
+    // When LR/RL: swap H_GAP↔V_GAP so inter-layer spacing is applied in the
+    // right axis after transposition by the renderer.
+    let h_gap = if is_lr_or_rl { V_GAP } else { H_GAP };
+    let v_gap = if is_lr_or_rl { H_GAP } else { V_GAP };
+
     // Build label info map: id -> (max_line_width, line_count)
     let id_to_label_info: HashMap<&str, (usize, usize)> = aug
         .graph
@@ -1177,15 +1189,17 @@ fn assign_coordinates_padded(
         .collect();
 
     // Compute (width, height) for each node, respecting overrides.
+    // For LR/RL: swap width↔height so Sugiyama lays out nodes in the rotated orientation.
     let node_dims = |id: &str| -> (usize, usize) {
         if let Some(&dims) = size_overrides.get(id) {
-            return dims;
+            return if is_lr_or_rl { (dims.1, dims.0) } else { dims };
         }
         let (max_line_w, line_count) = id_to_label_info.get(id).copied().unwrap_or((0, 1));
         let is_dummy = max_line_w == 0 && id.starts_with(DUMMY_PREFIX);
         let width = if is_dummy { 1 } else { max_line_w + 2 + 2 * padding };
         let height = if is_dummy { NODE_HEIGHT } else { 2 + line_count };
-        (width, height)
+        // For LR/RL: swap so layout treats width as the cross-axis dimension.
+        if is_lr_or_rl { (height, width) } else { (width, height) }
     };
 
     // First pass: compute per-layer max height.
@@ -1206,7 +1220,7 @@ fn assign_coordinates_padded(
             .iter()
             .map(|&h| {
                 let top = y;
-                y += h + V_GAP;
+                y += h + v_gap;
                 top
             })
             .collect()
@@ -1217,7 +1231,7 @@ fn assign_coordinates_padded(
         .iter()
         .map(|layer_nodes| {
             let w_sum: usize = layer_nodes.iter().map(|id| node_dims(id).0).sum();
-            let gaps = if layer_nodes.len() > 1 { (layer_nodes.len() - 1) * H_GAP } else { 0 };
+            let gaps = if layer_nodes.len() > 1 { (layer_nodes.len() - 1) * h_gap } else { 0 };
             w_sum + gaps
         })
         .collect();
@@ -1240,7 +1254,7 @@ fn assign_coordinates_padded(
                 width,
                 height,
             });
-            x += width + H_GAP;
+            x += width + h_gap;
         }
     }
 
@@ -1284,7 +1298,7 @@ fn assign_coordinates_padded(
 
         if count == 0 { continue; }
         let shift = sum_parent / count as isize - sum_child / count as isize;
-        if shift.abs() > H_GAP as isize { continue; }
+        if shift.abs() > h_gap as isize { continue; }
 
         for id in &ordering[layer_idx] {
             let ni = node_idx[id.as_str()];
@@ -1320,7 +1334,7 @@ fn assign_coordinates_padded(
 
         if count == 0 { continue; }
         let shift = sum_child / count as isize - sum_node / count as isize;
-        if shift.abs() > H_GAP as isize { continue; }
+        if shift.abs() > h_gap as isize { continue; }
 
         for id in &ordering[layer_idx] {
             let ni = node_idx[id.as_str()];
