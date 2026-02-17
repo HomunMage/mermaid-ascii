@@ -11,9 +11,16 @@ Phases:
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import networkx as nx
+
+from mermaid_ascii.graph import EdgeData, NodeData
+
+if TYPE_CHECKING:
+    from mermaid_ascii.graph import GraphIR
 
 # ─── Cycle Removal (Greedy-FAS) ───────────────────────────────────────────────
 
@@ -157,3 +164,196 @@ def remove_cycles(graph: nx.DiGraph) -> tuple[nx.DiGraph, set[tuple[str, str]]]:
             new_graph.add_edge(src, tgt, **edge_attrs)
 
     return new_graph, reversed_edges
+
+
+# ─── Layer Assignment ─────────────────────────────────────────────────────────
+
+
+class LayerAssignment:
+    """Result of layer assignment: each node is assigned a layer (rank).
+
+    Layer 0 is the "first" layer (top for TD, left for LR).
+    This is computed on a cycle-free copy of the graph produced by
+    ``remove_cycles``.
+
+    Attributes:
+        layers: Maps node id → layer index.
+        layer_count: Total number of layers.
+        reversed_edges: Edges reversed during cycle removal (as (src, tgt) pairs).
+    """
+
+    def __init__(
+        self,
+        layers: dict[str, int],
+        layer_count: int,
+        reversed_edges: set[tuple[str, str]],
+    ) -> None:
+        self.layers = layers
+        self.layer_count = layer_count
+        self.reversed_edges = reversed_edges
+
+    @classmethod
+    def assign(cls, gir: GraphIR) -> LayerAssignment:
+        """Assign layers to all nodes using fixed-point iteration.
+
+        Algorithm: for each edge u→v in the DAG, rank[v] = max(rank[v], rank[u]+1).
+        Repeat until stable. Runs in O(V * E) worst case, fast in practice.
+        """
+        dag, reversed_edges = remove_cycles(gir.digraph)
+
+        # Initialize all layers to 0.
+        layers: dict[str, int] = {node_id: 0 for node_id in gir.digraph.nodes}
+
+        # Fixed-point iteration: propagate ranks along DAG edges.
+        changed = True
+        while changed:
+            changed = False
+            for src, tgt in dag.edges():
+                src_rank = layers[src]
+                tgt_rank = layers[tgt]
+                if tgt_rank < src_rank + 1:
+                    layers[tgt] = src_rank + 1
+                    changed = True
+
+        layer_count = (max(layers.values()) + 1) if layers else 1
+
+        return cls(layers=layers, layer_count=layer_count, reversed_edges=reversed_edges)
+
+
+# ─── Dummy Node Insertion ──────────────────────────────────────────────────────
+
+DUMMY_PREFIX = "__dummy_"
+
+
+@dataclass
+class DummyEdge:
+    """The result of dummy node insertion for a single long edge.
+
+    When an edge spans more than one layer (layer[tgt] - layer[src] > 1),
+    it is replaced by a chain of dummy nodes — one per intermediate layer.
+    Each dummy node gets a synthetic id starting with DUMMY_PREFIX.
+    """
+
+    original_src: str
+    original_tgt: str
+    dummy_ids: list[str]
+    edge_data: EdgeData
+
+
+@dataclass
+class AugmentedGraph:
+    """A graph augmented with dummy nodes for edges that span multiple layers.
+
+    After dummy node insertion, every edge in the augmented graph connects
+    nodes in adjacent layers (layer difference == 1). This is a pre-condition
+    for crossing minimisation and coordinate assignment.
+    """
+
+    graph: nx.DiGraph
+    layers: dict[str, int]
+    layer_count: int
+    dummy_edges: list[DummyEdge]
+
+
+def insert_dummy_nodes(dag: nx.DiGraph, la: LayerAssignment) -> AugmentedGraph:
+    """Insert dummy nodes into the cycle-free, layer-assigned graph.
+
+    For each edge (u → v) where layer[v] - layer[u] > 1, the edge is removed
+    and replaced by the chain:
+        u → d₁ → d₂ → … → dₖ → v
+    where each dᵢ lives in layer ``layer[u] + i``.
+
+    Args:
+        dag: The cycle-free DiGraph produced by ``remove_cycles``.
+        la:  The layer assignment produced by ``LayerAssignment.assign``.
+
+    Returns:
+        An ``AugmentedGraph`` where every edge connects adjacent-layer nodes.
+    """
+    from mermaid_ascii import ast as mast
+
+    # Build a new graph; copy all original nodes preserving node attributes.
+    g: nx.DiGraph = nx.DiGraph()
+    for node_id in dag.nodes:
+        g.add_node(node_id, **dag.nodes[node_id])
+
+    # Layer map: extended with dummy nodes as they are inserted.
+    layers: dict[str, int] = copy.copy(la.layers)
+
+    dummy_edges: list[DummyEdge] = []
+    edge_counter = 0
+
+    # Collect all edges up-front so iteration is over a stable snapshot.
+    all_edges: list[tuple[str, str, EdgeData]] = [
+        (src, tgt, attrs.get("data")) for src, tgt, attrs in dag.edges(data=True)
+    ]
+
+    for src_id, tgt_id, edge_data in all_edges:
+        src_layer = layers[src_id]
+        tgt_layer = layers[tgt_id]
+
+        # Edges going "upward" (reversed back-edge in display) — treat as span 1.
+        layer_diff = tgt_layer - src_layer if tgt_layer > src_layer else 1
+
+        if layer_diff <= 1:
+            # Adjacent-layer edge — copy as-is.
+            g.add_edge(src_id, tgt_id, data=edge_data)
+            continue
+
+        # Long edge: replace with a chain of dummy nodes.
+        steps = layer_diff - 1  # number of intermediate layers
+        this_edge = edge_counter
+        edge_counter += 1
+
+        dummy_ids: list[str] = []
+        chain_prev = src_id
+
+        for i in range(steps):
+            dummy_layer = src_layer + i + 1
+            dummy_id = f"{DUMMY_PREFIX}{this_edge}_{i}"
+
+            dummy_data = NodeData(
+                id=dummy_id,
+                label="",
+                shape=mast.NodeShape.Rectangle,
+                attrs=[],
+                subgraph=None,
+            )
+            g.add_node(dummy_id, data=dummy_data)
+            layers[dummy_id] = dummy_layer
+            dummy_ids.append(dummy_id)
+
+            # Segment edge from previous node to this dummy (no label).
+            segment_edge = EdgeData(
+                edge_type=edge_data.edge_type if edge_data else mast.EdgeType.Arrow,
+                label=None,
+                attrs=[],
+            )
+            g.add_edge(chain_prev, dummy_id, data=segment_edge)
+            chain_prev = dummy_id
+
+        # Final segment: last dummy → original target, carry the label.
+        last_segment = EdgeData(
+            edge_type=edge_data.edge_type if edge_data else mast.EdgeType.Arrow,
+            label=edge_data.label if edge_data else None,
+            attrs=edge_data.attrs if edge_data else [],
+        )
+        g.add_edge(chain_prev, tgt_id, data=last_segment)
+
+        dummy_edges.append(
+            DummyEdge(
+                original_src=src_id,
+                original_tgt=tgt_id,
+                dummy_ids=dummy_ids,
+                edge_data=edge_data,
+            )
+        )
+
+    layer_count = (max(layers.values()) + 1) if layers else 1
+
+    return AugmentedGraph(
+        graph=g,
+        layers=layers,
+        layer_count=layer_count,
+        dummy_edges=dummy_edges,
+    )
