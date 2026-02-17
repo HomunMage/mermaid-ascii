@@ -129,7 +129,7 @@ fn parse_quoted_string(pair: Pair<Rule>) -> String {
     // The raw text includes surrounding quotes; strip them and unescape.
     let raw = pair.as_str();
     let inner = &raw[1..raw.len() - 1]; // strip outer quotes
-    inner.replace("\\\"", "\"").replace("\\\\", "\\")
+    inner.replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\")
 }
 
 // ─── Edge statement ───────────────────────────────────────────────────────────

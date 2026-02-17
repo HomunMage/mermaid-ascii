@@ -894,36 +894,63 @@ pub fn full_layout_with_padding(gir: &GraphIR, padding: usize) -> (Vec<LayoutNod
     (layout_nodes, routed_edges)
 }
 
+/// Compute (max_line_width, line_count) for a label that may contain newlines.
+fn label_dimensions(label: &str) -> (usize, usize) {
+    if label.is_empty() {
+        return (0, 1);
+    }
+    let lines: Vec<&str> = label.split('\n').collect();
+    let max_w = lines.iter().map(|l| l.len()).max().unwrap_or(0);
+    (max_w, lines.len())
+}
+
 /// Internal: coordinate assignment with a caller-specified padding value.
 fn assign_coordinates_padded(ordering: &[Vec<String>], aug: &AugmentedGraph, padding: usize) -> Vec<LayoutNode> {
+    // Build label info map: id -> (max_line_width, line_count)
+    let id_to_label_info: HashMap<&str, (usize, usize)> = aug
+        .graph
+        .node_indices()
+        .map(|ni| (aug.graph[ni].id.as_str(), label_dimensions(&aug.graph[ni].label)))
+        .collect();
+
+    // First pass: compute per-layer max height.
+    let mut layer_max_height: Vec<usize> = vec![NODE_HEIGHT; ordering.len()];
+    for (layer_idx, layer_nodes) in ordering.iter().enumerate() {
+        for id in layer_nodes {
+            let (_, line_count) = id_to_label_info.get(id.as_str()).copied().unwrap_or((0, 1));
+            let is_dummy = id.starts_with(DUMMY_PREFIX);
+            let h = if is_dummy { NODE_HEIGHT } else { 2 + line_count }; // border + lines + border
+            if h > layer_max_height[layer_idx] {
+                layer_max_height[layer_idx] = h;
+            }
+        }
+    }
+
+    // Compute layer Y offsets using actual max heights.
     let layer_y: Vec<usize> = {
         let mut y = 0;
-        ordering
+        layer_max_height
             .iter()
-            .map(|_| {
+            .map(|&h| {
                 let top = y;
-                y += NODE_HEIGHT + V_GAP;
+                y += h + V_GAP;
                 top
             })
             .collect()
     };
 
-    let id_to_label_len: HashMap<&str, usize> = aug
-        .graph
-        .node_indices()
-        .map(|ni| (aug.graph[ni].id.as_str(), aug.graph[ni].label.len()))
-        .collect();
-
     let mut nodes: Vec<LayoutNode> = Vec::new();
     for (layer_idx, layer_nodes) in ordering.iter().enumerate() {
         let mut x = 0usize;
         for (order, id) in layer_nodes.iter().enumerate() {
-            let label_len = id_to_label_len.get(id.as_str()).copied().unwrap_or(0);
-            let width = if label_len == 0 && id.starts_with(DUMMY_PREFIX) {
+            let (max_line_w, line_count) = id_to_label_info.get(id.as_str()).copied().unwrap_or((0, 1));
+            let is_dummy = max_line_w == 0 && id.starts_with(DUMMY_PREFIX);
+            let width = if is_dummy {
                 1
             } else {
-                label_len + 2 + 2 * padding // "[" + pad + label + pad + "]"
+                max_line_w + 2 + 2 * padding // "[" + pad + label + pad + "]"
             };
+            let height = if is_dummy { NODE_HEIGHT } else { 2 + line_count };
             nodes.push(LayoutNode {
                 id: id.clone(),
                 layer: layer_idx,
@@ -931,7 +958,7 @@ fn assign_coordinates_padded(ordering: &[Vec<String>], aug: &AugmentedGraph, pad
                 x,
                 y: layer_y[layer_idx],
                 width,
-                height: NODE_HEIGHT,
+                height,
             });
             x += width + H_GAP;
         }

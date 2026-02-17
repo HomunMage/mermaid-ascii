@@ -421,18 +421,16 @@ fn paint_node(canvas: &mut Canvas, ln: &LayoutNode, shape: &NodeShape, label: &s
     let rect = Rect::new(x, y, w, h);
     canvas.draw_box(&rect, &bc);
 
-    // Write label centered in the middle row (for h=3, row offset 1).
     let inner_w = w.saturating_sub(2);
-    let mid_row_offset = h / 2; // for h=3: offset=1
-    let label_row = y + mid_row_offset;
+    let lines: Vec<&str> = label.split('\n').collect();
 
-    // Center the label within the inner width.
-    let label_chars: Vec<char> = label.chars().collect();
-    let label_len = label_chars.len();
-    let pad = inner_w.saturating_sub(label_len) / 2;
-    let col_start = x + 1 + pad;
-
-    canvas.write_str(col_start, label_row, label);
+    for (i, line) in lines.iter().enumerate() {
+        let label_row = y + 1 + i; // row after top border
+        let line_len = line.len();
+        let pad = inner_w.saturating_sub(line_len) / 2;
+        let col_start = x + 1 + pad;
+        canvas.write_str(col_start, label_row, line);
+    }
 }
 
 // ─── Subgraph Border Rendering ────────────────────────────────────────────────
