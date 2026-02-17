@@ -7,56 +7,60 @@ on:
 
 permissions:
   contents: write
-  id-token: write  # Required for PyPI trusted publishing (OIDC)
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            archive: mermaid-ascii-python-linux-x86_64.tar.gz
+          - platform: linux/arm64
+            archive: mermaid-ascii-python-linux-aarch64.tar.gz
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build with Docker
         run: |
           docker buildx build \
+            --platform ${{ matrix.platform }} \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
             --output type=local,dest=./out .
 
-      - name: Package
-        run: tar czf mermaid-ascii-python-dist.tar.gz -C out .
+      - name: Package (tar.gz)
+        if: "!contains(matrix.archive, '.zip')"
+        run: tar czf ${{ matrix.archive }} -C out .
+
+      - name: Package (zip)
+        if: contains(matrix.archive, '.zip')
+        run: cd out && zip -r ../${{ matrix.archive }} .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mermaid-ascii-python-dist.tar.gz
-          path: mermaid-ascii-python-dist.tar.gz
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
 
-  release:
-    runs-on: ubuntu-latest
-    needs: [build]
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: mermaid-ascii-python-macos-aarch64.tar.gz
 
-      - name: Create GitHub Release
-        uses: ncipollo/release-action@v1
-        with:
-          generateReleaseNotes: true
-          artifacts: artifacts/*
-          allowUpdates: true
+    runs-on: ${{ matrix.os }}
 
-  publish:
-    name: Publish to PyPI
-    runs-on: ubuntu-latest
-    needs: [build]
-    environment:
-      name: pypi
-      url: https://pypi.org/project/mermaid-ascii/
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,10 +75,73 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Build wheel and sdist
-        run: uv build
+      - name: Build
+        run: |
+          uv sync --frozen --no-dev
+          uv pip install pyinstaller
+          uv run pyinstaller --onefile --name mermaid-ascii src/mermaid_ascii/__main__.py
 
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        # Uses OIDC trusted publishing — no API token needed.
-        # Configure trusted publisher at https://pypi.org/manage/account/publishing/
+      - name: Package
+        run: tar czf ${{ matrix.archive }} -C dist mermaid-ascii
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
+  build-windows:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: mermaid-ascii-python-windows-x86_64.zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: |
+          uv sync --frozen --no-dev
+          uv pip install pyinstaller
+          uv run pyinstaller --onefile --name mermaid-ascii src/mermaid_ascii/__main__.py
+
+      - name: Package (zip)
+        run: Compress-Archive -Path dist/mermaid-ascii.exe -DestinationPath ${{ matrix.archive }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build, build-macos, build-windows]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          generateReleaseNotes: true
+          artifacts: artifacts/*
+          allowUpdates: true
