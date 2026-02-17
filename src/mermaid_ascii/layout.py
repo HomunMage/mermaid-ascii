@@ -405,7 +405,8 @@ def minimise_crossings(aug: AugmentedGraph) -> list[list[str]]:
             ordering[layer_idx].sort(key=lambda a, p=prev: _barycenter(a, aug.graph, p, "incoming"))
 
         # Bottom-up sweep: use successor positions as barycenter weights.
-        for layer_idx in range(max(0, layer_count - 2), -1, -1):
+        # Note: when layer_count < 2, layer_count - 2 < 0 so this range is empty.
+        for layer_idx in range(layer_count - 2, -1, -1):
             next_ids = ordering[layer_idx + 1]
             nxt: dict[str, float] = {nid: float(i) for i, nid in enumerate(next_ids)}
             ordering[layer_idx].sort(key=lambda a, n=nxt: _barycenter(a, aug.graph, n, "outgoing"))
