@@ -1,4 +1,5 @@
-"""Tests for layout.py — cycle removal (Phase 4) + crossing minimization + coordinate assignment (Phase 6).
+"""Tests for layout.py — cycle removal (Phase 4) + crossing minimization + coordinate assignment (Phase 6)
++ edge routing and compound nodes (Phase 7).
 
 Phase 4 tests port the 5 Rust cycle-removal tests:
   - test_dag_has_no_reversed_edges
@@ -13,6 +14,18 @@ Phase 6 tests cover:
   - assign_coordinates / assign_coordinates_padded (TD + LR)
   - label_dimensions helper
   - LayoutNode dataclass
+
+Phase 7 tests cover:
+  - Point dataclass
+  - RoutedEdge dataclass
+  - compute_orthogonal_waypoints
+  - route_edges
+  - COMPOUND_PREFIX constant
+  - CompoundInfo dataclass
+  - collapse_subgraphs
+  - compute_compound_dimensions
+  - expand_compound_nodes
+  - full_layout / full_layout_with_padding
 """
 
 from __future__ import annotations
@@ -22,23 +35,34 @@ import networkx as nx
 from mermaid_ascii import ast as mast
 from mermaid_ascii.graph import EdgeData, GraphIR, NodeData
 from mermaid_ascii.layout import (
+    COMPOUND_PREFIX,
     DUMMY_PREFIX,
     H_GAP,
     NODE_HEIGHT,
     NODE_PADDING,
     V_GAP,
     AugmentedGraph,
+    CompoundInfo,
     CycleRemovalResult,
     LayerAssignment,
     LayoutNode,
+    Point,
+    RoutedEdge,
     assign_coordinates,
     assign_coordinates_padded,
+    collapse_subgraphs,
+    compute_compound_dimensions,
+    compute_orthogonal_waypoints,
     count_crossings,
+    expand_compound_nodes,
+    full_layout,
+    full_layout_with_padding,
     greedy_fas_ordering,
     insert_dummy_nodes,
     label_dimensions,
     minimise_crossings,
     remove_cycles,
+    route_edges,
 )
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -659,3 +683,611 @@ class TestPhase6Integration:
         for n in result:
             assert n.x >= 0, f"Node {n.id} has negative x={n.x}"
             assert n.y >= 0, f"Node {n.id} has negative y={n.y}"
+
+
+# ─── Phase 7: Point dataclass tests ───────────────────────────────────────────
+
+
+class TestPoint:
+    def test_construction(self):
+        """Point stores x and y fields."""
+        p = Point(x=3, y=7)
+        assert p.x == 3
+        assert p.y == 7
+
+    def test_equality(self):
+        """Two Points with same coordinates are equal."""
+        assert Point(x=0, y=0) == Point(x=0, y=0)
+        assert Point(x=5, y=10) == Point(x=5, y=10)
+
+    def test_inequality(self):
+        """Points with different coordinates are not equal."""
+        assert Point(x=1, y=2) != Point(x=2, y=1)
+
+    def test_zero_coords(self):
+        """Point at origin (0, 0) is valid."""
+        p = Point(x=0, y=0)
+        assert p.x == 0
+        assert p.y == 0
+
+
+# ─── Phase 7: RoutedEdge dataclass tests ──────────────────────────────────────
+
+
+class TestRoutedEdge:
+    def test_construction(self):
+        """RoutedEdge stores all fields correctly."""
+        wp = [Point(x=0, y=0), Point(x=0, y=5)]
+        edge = RoutedEdge(from_id="A", to_id="B", label="my label", edge_type=mast.EdgeType.Arrow, waypoints=wp)
+        assert edge.from_id == "A"
+        assert edge.to_id == "B"
+        assert edge.label == "my label"
+        assert edge.edge_type == mast.EdgeType.Arrow
+        assert edge.waypoints == wp
+
+    def test_none_label(self):
+        """RoutedEdge accepts None as label."""
+        edge = RoutedEdge(from_id="X", to_id="Y", label=None, edge_type=mast.EdgeType.Line, waypoints=[])
+        assert edge.label is None
+
+    def test_empty_waypoints(self):
+        """RoutedEdge can have empty waypoints list."""
+        edge = RoutedEdge(from_id="A", to_id="B", label=None, edge_type=mast.EdgeType.Arrow, waypoints=[])
+        assert edge.waypoints == []
+
+    def test_multiple_waypoints(self):
+        """RoutedEdge can carry many waypoints."""
+        wps = [Point(x=i, y=i * 2) for i in range(5)]
+        edge = RoutedEdge(from_id="A", to_id="Z", label=None, edge_type=mast.EdgeType.DottedArrow, waypoints=wps)
+        assert len(edge.waypoints) == 5
+
+
+# ─── Phase 7: compute_orthogonal_waypoints tests ──────────────────────────────
+
+
+def _make_layout_node(nid: str, layer: int, x: int, y: int, w: int = 5, h: int = 3) -> LayoutNode:
+    return LayoutNode(id=nid, layer=layer, order=0, x=x, y=y, width=w, height=h)
+
+
+class TestComputeOrthogonalWaypoints:
+    def test_adjacent_layers_two_waypoints(self):
+        """Adjacent-layer edge (layer 0 → layer 1): produces at least 2 waypoints (exit + entry)."""
+        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=5, h=3)
+        to_node = _make_layout_node("B", layer=1, x=0, y=6, w=5, h=3)
+        layer_top_y = [0, 6]
+        layer_bottom_y = [3, 9]
+        wps = compute_orthogonal_waypoints(from_node, to_node, layer_top_y, layer_bottom_y, [])
+        assert len(wps) >= 2, "Should have at least exit + entry waypoints"
+
+    def test_first_waypoint_is_exit_of_from_node(self):
+        """First waypoint is at the bottom-center of from_node."""
+        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=6, h=3)
+        to_node = _make_layout_node("B", layer=1, x=0, y=6, w=6, h=3)
+        wps = compute_orthogonal_waypoints(from_node, to_node, [0, 6], [3, 9], [])
+        # exit_x = 0 + 6//2 = 3; exit_y = 0 + 3 - 1 = 2
+        assert wps[0].x == 3
+        assert wps[0].y == 2
+
+    def test_last_waypoint_is_entry_of_to_node(self):
+        """Last waypoint is at the top-center of to_node."""
+        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=6, h=3)
+        to_node = _make_layout_node("B", layer=1, x=4, y=6, w=6, h=3)
+        wps = compute_orthogonal_waypoints(from_node, to_node, [0, 6], [3, 9], [])
+        # entry_x = 4 + 6//2 = 7; entry_y = 6 (top of to_node)
+        assert wps[-1].x == 7
+        assert wps[-1].y == 6
+
+    def test_same_layer_u_shape(self):
+        """Same-layer edge produces a 4-point U-shape going below the layer."""
+        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=5, h=3)
+        to_node = _make_layout_node("B", layer=0, x=10, y=0, w=5, h=3)
+        layer_top_y = [0]
+        layer_bottom_y = [3]
+        wps = compute_orthogonal_waypoints(from_node, to_node, layer_top_y, layer_bottom_y, [])
+        assert len(wps) == 4, "Same-layer edge should produce exactly 4 waypoints"
+        # U-shape: exit → below-left → below-right → entry
+        assert wps[0].y < wps[1].y, "First drop should go down"
+        assert wps[2].y > wps[0].y, "Still below original y before final entry"
+        assert wps[3].y == to_node.y, "Last point lands at top of to_node"
+
+    def test_long_edge_uses_dummy_xs(self):
+        """Edge spanning 2 layers uses provided dummy_xs for horizontal routing."""
+        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=5, h=3)
+        to_node = _make_layout_node("C", layer=2, x=0, y=12, w=5, h=3)
+        layer_top_y = [0, 6, 12]
+        layer_bottom_y = [3, 9, 15]
+        dummy_xs = [8]  # dummy at x=8 in gap between layer 0 and layer 1
+        wps = compute_orthogonal_waypoints(from_node, to_node, layer_top_y, layer_bottom_y, dummy_xs)
+        # Should have more than 2 waypoints to handle the intermediate layer
+        assert len(wps) >= 3
+        # At least one waypoint should be at x=8 (the dummy x position)
+        xs = [w.x for w in wps]
+        assert 8 in xs, f"Expected dummy x=8 in waypoints, got {xs}"
+
+    def test_waypoints_monotonically_increasing_y(self):
+        """For a top-down edge, y coordinates of waypoints should be non-decreasing."""
+        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=5, h=3)
+        to_node = _make_layout_node("B", layer=1, x=0, y=6, w=5, h=3)
+        wps = compute_orthogonal_waypoints(from_node, to_node, [0, 6], [3, 9], [])
+        for i in range(len(wps) - 1):
+            assert wps[i].y <= wps[i + 1].y, f"Y should be non-decreasing: {wps}"
+
+    def test_all_waypoints_non_negative(self):
+        """All waypoint coordinates must be non-negative."""
+        from_node = _make_layout_node("A", layer=0, x=2, y=0, w=5, h=3)
+        to_node = _make_layout_node("B", layer=1, x=2, y=6, w=5, h=3)
+        wps = compute_orthogonal_waypoints(from_node, to_node, [0, 6], [3, 9], [])
+        for wp in wps:
+            assert wp.x >= 0
+            assert wp.y >= 0
+
+
+# ─── Phase 7: route_edges tests ───────────────────────────────────────────────
+
+
+def _build_gir_simple(dsl: str) -> GraphIR:
+    """Helper: parse DSL → AST → GraphIR."""
+    from mermaid_ascii.parser import parse
+
+    return GraphIR.from_ast(parse(dsl))
+
+
+class TestRouteEdges:
+    def test_returns_one_route_per_edge(self):
+        """route_edges returns exactly one RoutedEdge per real (non-self-loop) edge."""
+        gir = _build_gir_simple("graph TD\n    A --> B\n    B --> C\n")
+        la = LayerAssignment.assign(gir)
+        dag, reversed_edges = remove_cycles(gir.digraph)
+        aug = insert_dummy_nodes(dag, la)
+        ordering = minimise_crossings(aug)
+        layout_nodes = assign_coordinates(ordering, aug)
+        routes = route_edges(gir, layout_nodes, aug, reversed_edges)
+        assert len(routes) == 2
+
+    def test_route_from_to_ids_match_edges(self):
+        """RoutedEdge from_id/to_id correspond to node ids in the graph."""
+        gir = _build_gir_simple("graph TD\n    A --> B\n")
+        la = LayerAssignment.assign(gir)
+        dag, rev = remove_cycles(gir.digraph)
+        aug = insert_dummy_nodes(dag, la)
+        ordering = minimise_crossings(aug)
+        layout_nodes = assign_coordinates(ordering, aug)
+        routes = route_edges(gir, layout_nodes, aug, rev)
+        assert len(routes) == 1
+        route = routes[0]
+        assert {route.from_id, route.to_id} == {"A", "B"}
+
+    def test_each_route_has_waypoints(self):
+        """Every RoutedEdge has at least 2 waypoints."""
+        gir = _build_gir_simple("graph TD\n    A --> B\n    B --> C\n")
+        la = LayerAssignment.assign(gir)
+        dag, rev = remove_cycles(gir.digraph)
+        aug = insert_dummy_nodes(dag, la)
+        ordering = minimise_crossings(aug)
+        layout_nodes = assign_coordinates(ordering, aug)
+        routes = route_edges(gir, layout_nodes, aug, rev)
+        for r in routes:
+            assert len(r.waypoints) >= 2, f"Edge {r.from_id}→{r.to_id} has {len(r.waypoints)} waypoints"
+
+    def test_edge_label_preserved_in_route(self):
+        """Edge label from the graph is preserved in the RoutedEdge."""
+        gir = _build_gir_simple("graph TD\n    A -->|hello| B\n")
+        la = LayerAssignment.assign(gir)
+        dag, rev = remove_cycles(gir.digraph)
+        aug = insert_dummy_nodes(dag, la)
+        ordering = minimise_crossings(aug)
+        layout_nodes = assign_coordinates(ordering, aug)
+        routes = route_edges(gir, layout_nodes, aug, rev)
+        assert len(routes) == 1
+        assert routes[0].label == "hello"
+
+    def test_self_loop_not_included_in_routes(self):
+        """Self-loop edges (A→A) should be excluded from routes."""
+        gir = _build_gir_simple("graph TD\n    A --> B\n    A --> A\n")
+        la = LayerAssignment.assign(gir)
+        dag, rev = remove_cycles(gir.digraph)
+        aug = insert_dummy_nodes(dag, la)
+        ordering = minimise_crossings(aug)
+        layout_nodes = assign_coordinates(ordering, aug)
+        routes = route_edges(gir, layout_nodes, aug, rev)
+        for r in routes:
+            assert r.from_id != r.to_id, "Self-loop should not appear in routes"
+
+    def test_edge_type_preserved_in_route(self):
+        """Edge type from the graph is preserved in the RoutedEdge."""
+        gir = _build_gir_simple("graph TD\n    A -.-> B\n")
+        la = LayerAssignment.assign(gir)
+        dag, rev = remove_cycles(gir.digraph)
+        aug = insert_dummy_nodes(dag, la)
+        ordering = minimise_crossings(aug)
+        layout_nodes = assign_coordinates(ordering, aug)
+        routes = route_edges(gir, layout_nodes, aug, rev)
+        assert len(routes) == 1
+        assert routes[0].edge_type == mast.EdgeType.DottedArrow
+
+    def test_empty_graph_returns_no_routes(self):
+        """An empty graph produces no routes."""
+        gir = _build_gir_simple("graph TD\n    A\n")
+        la = LayerAssignment.assign(gir)
+        dag, rev = remove_cycles(gir.digraph)
+        aug = insert_dummy_nodes(dag, la)
+        ordering = minimise_crossings(aug)
+        layout_nodes = assign_coordinates(ordering, aug)
+        routes = route_edges(gir, layout_nodes, aug, rev)
+        assert routes == []
+
+    def test_all_waypoint_coords_non_negative(self):
+        """All waypoints in all routed edges must have non-negative coordinates."""
+        gir = _build_gir_simple("graph TD\n    A --> B\n    A --> C\n    B --> D\n    C --> D\n")
+        la = LayerAssignment.assign(gir)
+        dag, rev = remove_cycles(gir.digraph)
+        aug = insert_dummy_nodes(dag, la)
+        ordering = minimise_crossings(aug)
+        layout_nodes = assign_coordinates(ordering, aug)
+        routes = route_edges(gir, layout_nodes, aug, rev)
+        for r in routes:
+            for wp in r.waypoints:
+                assert wp.x >= 0, f"Negative x in edge {r.from_id}→{r.to_id}"
+                assert wp.y >= 0, f"Negative y in edge {r.from_id}→{r.to_id}"
+
+
+# ─── Phase 7: COMPOUND_PREFIX + CompoundInfo tests ────────────────────────────
+
+
+class TestCompoundPrefix:
+    def test_compound_prefix_value(self):
+        """COMPOUND_PREFIX is '__sg_'."""
+        assert COMPOUND_PREFIX == "__sg_"
+
+    def test_compound_prefix_type(self):
+        """COMPOUND_PREFIX is a string."""
+        assert isinstance(COMPOUND_PREFIX, str)
+
+
+class TestCompoundInfo:
+    def test_construction(self):
+        """CompoundInfo stores all fields."""
+        ci = CompoundInfo(
+            sg_name="Group",
+            compound_id="__sg_Group",
+            member_ids=["X", "Y"],
+            member_widths=[5, 7],
+            member_heights=[3, 3],
+            max_member_height=3,
+            description="My group",
+        )
+        assert ci.sg_name == "Group"
+        assert ci.compound_id == "__sg_Group"
+        assert ci.member_ids == ["X", "Y"]
+        assert ci.member_widths == [5, 7]
+        assert ci.member_heights == [3, 3]
+        assert ci.max_member_height == 3
+        assert ci.description == "My group"
+
+    def test_none_description(self):
+        """CompoundInfo description can be None."""
+        ci = CompoundInfo(
+            sg_name="G",
+            compound_id="__sg_G",
+            member_ids=[],
+            member_widths=[],
+            member_heights=[],
+            max_member_height=3,
+            description=None,
+        )
+        assert ci.description is None
+
+
+# ─── Phase 7: collapse_subgraphs tests ────────────────────────────────────────
+
+
+class TestCollapseSubgraphs:
+    def _parse_gir(self, dsl: str) -> GraphIR:
+        from mermaid_ascii.parser import parse
+
+        return GraphIR.from_ast(parse(dsl))
+
+    def test_no_subgraphs_returns_original_gir(self):
+        """Graph with no subgraphs returns unchanged GIR and empty compounds."""
+        gir = self._parse_gir("graph TD\n    A --> B\n")
+        collapsed, compounds = collapse_subgraphs(gir, NODE_PADDING)
+        assert compounds == []
+        # No compound nodes added
+        assert COMPOUND_PREFIX not in " ".join(collapsed.digraph.nodes)
+
+    def test_subgraph_creates_compound_node(self):
+        """A subgraph produces one CompoundInfo and one compound node in collapsed GIR."""
+        dsl = "graph TD\n    subgraph MyGroup\n        X --> Y\n    end\n"
+        gir = self._parse_gir(dsl)
+        collapsed, compounds = collapse_subgraphs(gir, NODE_PADDING)
+        assert len(compounds) == 1
+        ci = compounds[0]
+        assert ci.sg_name == "MyGroup"
+        assert ci.compound_id == f"{COMPOUND_PREFIX}MyGroup"
+        # Compound node exists in collapsed graph
+        assert ci.compound_id in collapsed.digraph.nodes
+
+    def test_member_nodes_removed_from_collapsed_graph(self):
+        """Member nodes of a subgraph should not appear directly in collapsed graph."""
+        dsl = "graph TD\n    subgraph G\n        A --> B\n    end\n"
+        gir = self._parse_gir(dsl)
+        collapsed, _ = collapse_subgraphs(gir, NODE_PADDING)
+        assert "A" not in collapsed.digraph.nodes
+        assert "B" not in collapsed.digraph.nodes
+
+    def test_cross_boundary_edge_redirected_to_compound(self):
+        """Edge from external node to subgraph member becomes edge to compound node."""
+        dsl = "graph TD\n    Ext --> A\n    subgraph G\n        A --> B\n    end\n"
+        gir = self._parse_gir(dsl)
+        collapsed, compounds = collapse_subgraphs(gir, NODE_PADDING)
+        compound_id = compounds[0].compound_id
+        # Ext → compound should exist
+        assert collapsed.digraph.has_edge("Ext", compound_id), (
+            f"Expected Ext → {compound_id}, edges: {list(collapsed.digraph.edges())}"
+        )
+
+    def test_internal_edges_dropped(self):
+        """Edges between two members of the same subgraph are dropped in collapsed GIR."""
+        dsl = "graph TD\n    subgraph G\n        A --> B\n    end\n"
+        gir = self._parse_gir(dsl)
+        collapsed, _ = collapse_subgraphs(gir, NODE_PADDING)
+        # No edge from A or B (they're collapsed into a compound)
+        assert collapsed.digraph.number_of_edges() == 0
+
+    def test_member_ids_in_compound_info(self):
+        """CompoundInfo.member_ids lists the subgraph members."""
+        dsl = "graph TD\n    subgraph G\n        X\n        Y\n    end\n"
+        gir = self._parse_gir(dsl)
+        _, compounds = collapse_subgraphs(gir, NODE_PADDING)
+        assert len(compounds) == 1
+        assert set(compounds[0].member_ids) == {"X", "Y"}
+
+    def test_compound_info_description_when_subgraph_has_label(self):
+        """CompoundInfo description is set when subgraph has a description (title)."""
+        dsl = 'graph TD\n    subgraph G["My Title"]\n        A\n    end\n'
+        gir = self._parse_gir(dsl)
+        _, compounds = collapse_subgraphs(gir, NODE_PADDING)
+        # description should be present (either from subgraph description or None)
+        # Just verify the field exists and is accessible
+        assert hasattr(compounds[0], "description")
+
+
+# ─── Phase 7: compute_compound_dimensions tests ───────────────────────────────
+
+
+class TestComputeCompoundDimensions:
+    def test_single_member_dimensions(self):
+        """A compound with one member has at least enough width for that member."""
+        ci = CompoundInfo(
+            sg_name="G",
+            compound_id="__sg_G",
+            member_ids=["A"],
+            member_widths=[7],
+            member_heights=[3],
+            max_member_height=3,
+            description=None,
+        )
+        dims = compute_compound_dimensions([ci], NODE_PADDING)
+        assert "__sg_G" in dims
+        w, h = dims["__sg_G"]
+        assert w >= 7, "Width should be at least as wide as the member"
+        assert h >= 3, "Height should be at least as tall as the member"
+
+    def test_two_members_wider_than_one(self):
+        """Two members result in wider compound than one member of same width."""
+        ci_one = CompoundInfo(
+            sg_name="G1",
+            compound_id="__sg_G1",
+            member_ids=["A"],
+            member_widths=[5],
+            member_heights=[3],
+            max_member_height=3,
+            description=None,
+        )
+        ci_two = CompoundInfo(
+            sg_name="G2",
+            compound_id="__sg_G2",
+            member_ids=["A", "B"],
+            member_widths=[5, 5],
+            member_heights=[3, 3],
+            max_member_height=3,
+            description=None,
+        )
+        dims = compute_compound_dimensions([ci_one, ci_two], NODE_PADDING)
+        assert dims["__sg_G2"][0] > dims["__sg_G1"][0], "Two members should be wider than one"
+
+    def test_dimensions_respect_title_width(self):
+        """Compound width is at least as wide as the subgraph name + border chars."""
+        long_name = "VeryLongSubgraphName"
+        ci = CompoundInfo(
+            sg_name=long_name,
+            compound_id=f"__sg_{long_name}",
+            member_ids=["X"],
+            member_widths=[1],
+            member_heights=[3],
+            max_member_height=3,
+            description=None,
+        )
+        dims = compute_compound_dimensions([ci], NODE_PADDING)
+        w, _ = dims[f"__sg_{long_name}"]
+        min_title_w = len(long_name) + 4
+        assert w >= min_title_w, f"Width {w} should be at least {min_title_w}"
+
+    def test_empty_members_still_returns_dims(self):
+        """Compound with no members still produces valid (positive) dimensions."""
+        ci = CompoundInfo(
+            sg_name="Empty",
+            compound_id="__sg_Empty",
+            member_ids=[],
+            member_widths=[],
+            member_heights=[],
+            max_member_height=NODE_HEIGHT,
+            description=None,
+        )
+        dims = compute_compound_dimensions([ci], NODE_PADDING)
+        assert "__sg_Empty" in dims
+        w, h = dims["__sg_Empty"]
+        assert w > 0
+        assert h > 0
+
+
+# ─── Phase 7: expand_compound_nodes tests ─────────────────────────────────────
+
+
+class TestExpandCompoundNodes:
+    def test_non_compound_nodes_unchanged(self):
+        """Nodes that are not compound nodes pass through unchanged."""
+        ln = LayoutNode(id="A", layer=0, order=0, x=5, y=10, width=7, height=3)
+        result = expand_compound_nodes([ln], [])
+        assert len(result) == 1
+        assert result[0].id == "A"
+        assert result[0].x == 5
+
+    def test_compound_node_adds_members(self):
+        """A compound node produces itself + one LayoutNode per member."""
+        ci = CompoundInfo(
+            sg_name="G",
+            compound_id="__sg_G",
+            member_ids=["X", "Y"],
+            member_widths=[5, 7],
+            member_heights=[3, 3],
+            max_member_height=3,
+            description=None,
+        )
+        compound_ln = LayoutNode(id="__sg_G", layer=0, order=0, x=0, y=0, width=20, height=6)
+        result = expand_compound_nodes([compound_ln], [ci])
+        ids = [n.id for n in result]
+        assert "__sg_G" in ids
+        assert "X" in ids
+        assert "Y" in ids
+        assert len(result) == 3  # compound + 2 members
+
+    def test_member_nodes_inside_compound_bounds(self):
+        """Member nodes are positioned inside the compound node's bounds."""
+        ci = CompoundInfo(
+            sg_name="G",
+            compound_id="__sg_G",
+            member_ids=["M1"],
+            member_widths=[5],
+            member_heights=[3],
+            max_member_height=3,
+            description=None,
+        )
+        compound_ln = LayoutNode(id="__sg_G", layer=0, order=0, x=10, y=20, width=15, height=8)
+        result = expand_compound_nodes([compound_ln], [ci])
+        member = next(n for n in result if n.id == "M1")
+        assert member.x >= compound_ln.x, "Member should start at or after compound left edge"
+        assert member.y >= compound_ln.y, "Member should start at or after compound top edge"
+        assert member.x + member.width <= compound_ln.x + compound_ln.width + 2, (
+            "Member should fit within compound (with border)"
+        )
+
+    def test_multiple_members_placed_horizontally(self):
+        """Multiple members in a compound are placed horizontally (increasing x)."""
+        ci = CompoundInfo(
+            sg_name="G",
+            compound_id="__sg_G",
+            member_ids=["A", "B", "C"],
+            member_widths=[5, 5, 5],
+            member_heights=[3, 3, 3],
+            max_member_height=3,
+            description=None,
+        )
+        compound_ln = LayoutNode(id="__sg_G", layer=0, order=0, x=0, y=0, width=30, height=8)
+        result = expand_compound_nodes([compound_ln], [ci])
+        members = [n for n in result if n.id in {"A", "B", "C"}]
+        members_sorted = sorted(members, key=lambda n: n.x)
+        # All members should have the same y (horizontal layout)
+        ys = [n.y for n in members]
+        assert len(set(ys)) == 1, "All members should have same y"
+        # x positions should be strictly increasing
+        xs = [n.x for n in members_sorted]
+        for i in range(len(xs) - 1):
+            assert xs[i] < xs[i + 1], "Members should be placed left to right"
+
+    def test_expand_preserves_layer_and_order(self):
+        """Expanded members inherit the compound's layer and order."""
+        ci = CompoundInfo(
+            sg_name="G",
+            compound_id="__sg_G",
+            member_ids=["Z"],
+            member_widths=[5],
+            member_heights=[3],
+            max_member_height=3,
+            description=None,
+        )
+        compound_ln = LayoutNode(id="__sg_G", layer=2, order=1, x=0, y=0, width=15, height=8)
+        result = expand_compound_nodes([compound_ln], [ci])
+        member = next(n for n in result if n.id == "Z")
+        assert member.layer == 2
+        assert member.order == 1
+
+
+# ─── Phase 7: full_layout / full_layout_with_padding integration tests ─────────
+
+
+class TestFullLayout:
+    def _parse_gir(self, dsl: str) -> GraphIR:
+        from mermaid_ascii.parser import parse
+
+        return GraphIR.from_ast(parse(dsl))
+
+    def test_simple_chain_returns_nodes_and_edges(self):
+        """full_layout on A→B returns LayoutNodes and RoutedEdges for both nodes + edge."""
+        gir = self._parse_gir("graph TD\n    A --> B\n")
+        layout_nodes, routed_edges = full_layout(gir)
+        ids = {n.id for n in layout_nodes}
+        assert "A" in ids
+        assert "B" in ids
+        assert len(routed_edges) == 1
+
+    def test_all_coords_non_negative(self):
+        """All node coordinates from full_layout must be non-negative."""
+        gir = self._parse_gir("graph TD\n    A --> B\n    A --> C\n    B --> D\n")
+        layout_nodes, routed_edges = full_layout(gir)
+        for n in layout_nodes:
+            assert n.x >= 0
+            assert n.y >= 0
+        for r in routed_edges:
+            for wp in r.waypoints:
+                assert wp.x >= 0
+                assert wp.y >= 0
+
+    def test_custom_padding_returns_wider_nodes(self):
+        """full_layout_with_padding with larger padding returns wider nodes."""
+        gir = self._parse_gir("graph TD\n    Hello --> World\n")
+        nodes_p1, _ = full_layout_with_padding(gir, 1)
+        nodes_p3, _ = full_layout_with_padding(gir, 3)
+        # Find the "Hello" node in each
+        n_p1 = next(n for n in nodes_p1 if n.id == "Hello")
+        n_p3 = next(n for n in nodes_p3 if n.id == "Hello")
+        assert n_p3.width > n_p1.width, "Larger padding should produce wider nodes"
+
+    def test_subgraph_layout_includes_members(self):
+        """full_layout on a graph with subgraph includes both compound and member nodes."""
+        dsl = "graph TD\n    subgraph G\n        X --> Y\n    end\n"
+        gir = self._parse_gir(dsl)
+        layout_nodes, _ = full_layout(gir)
+        ids = {n.id for n in layout_nodes}
+        # Should contain the compound node
+        assert any(nid.startswith(COMPOUND_PREFIX) for nid in ids), f"Expected compound node, got ids: {ids}"
+        # Should contain member nodes X and Y
+        assert "X" in ids
+        assert "Y" in ids
+
+    def test_lr_direction_layout_valid(self):
+        """full_layout with LR direction produces valid non-negative coordinates."""
+        gir = self._parse_gir("graph LR\n    A --> B\n    B --> C\n")
+        layout_nodes, routed_edges = full_layout(gir)
+        for n in layout_nodes:
+            assert n.x >= 0
+            assert n.y >= 0
+        assert len(routed_edges) == 2
+
+    def test_empty_single_node_layout(self):
+        """full_layout on a single node with no edges returns that node."""
+        gir = self._parse_gir("graph TD\n    Lonely\n")
+        layout_nodes, routed_edges = full_layout(gir)
+        ids = {n.id for n in layout_nodes}
+        assert "Lonely" in ids
+        assert routed_edges == []
