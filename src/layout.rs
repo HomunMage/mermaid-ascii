@@ -666,50 +666,7 @@ const NODE_HEIGHT: usize = 3;  // top-border + text-row + bottom-border
 /// Layout is top-down (TD): x = column, y = row. The renderer transposes for LR.
 /// Dummy nodes are given width 1 to minimise horizontal space consumption.
 pub fn assign_coordinates(ordering: &[Vec<String>], aug: &AugmentedGraph) -> Vec<LayoutNode> {
-    // Precompute the Y (top row) of each layer.
-    let layer_y: Vec<usize> = {
-        let mut y = 0;
-        ordering
-            .iter()
-            .map(|_| {
-                let top = y;
-                y += NODE_HEIGHT + V_GAP;
-                top
-            })
-            .collect()
-    };
-
-    // Build id → label-length lookup from augmented graph.
-    let id_to_label_len: HashMap<&str, usize> = aug
-        .graph
-        .node_indices()
-        .map(|ni| (aug.graph[ni].id.as_str(), aug.graph[ni].label.len()))
-        .collect();
-
-    let mut nodes: Vec<LayoutNode> = Vec::new();
-    for (layer_idx, layer_nodes) in ordering.iter().enumerate() {
-        let mut x = 0usize;
-        for (order, id) in layer_nodes.iter().enumerate() {
-            let label_len = id_to_label_len.get(id.as_str()).copied().unwrap_or(0);
-            // Dummy nodes have empty labels; give them width 1.
-            let width = if label_len == 0 && id.starts_with(DUMMY_PREFIX) {
-                1
-            } else {
-                label_len + 2 + 2 * NODE_PADDING // "[" + pad + label + pad + "]"
-            };
-            nodes.push(LayoutNode {
-                id: id.clone(),
-                layer: layer_idx,
-                order,
-                x,
-                y: layer_y[layer_idx],
-                width,
-                height: NODE_HEIGHT,
-            });
-            x += width + H_GAP;
-        }
-    }
-    nodes
+    assign_coordinates_padded(ordering, aug, NODE_PADDING)
 }
 
 // ─── Edge Routing (Orthogonal) ────────────────────────────────────────────────
@@ -922,13 +879,64 @@ fn compute_orthogonal_waypoints(
 ///   4. Coordinate assignment.
 ///   5. Edge routing (orthogonal, through inter-layer gap spaces).
 pub fn full_layout(gir: &GraphIR) -> (Vec<LayoutNode>, Vec<RoutedEdge>) {
+    full_layout_with_padding(gir, NODE_PADDING)
+}
+
+/// Like `full_layout` but allows the caller to control the node padding
+/// (number of spaces inside the node border on each side of the label).
+pub fn full_layout_with_padding(gir: &GraphIR, padding: usize) -> (Vec<LayoutNode>, Vec<RoutedEdge>) {
     let la = LayerAssignment::assign(gir);
     let (dag, reversed_edges) = remove_cycles(&gir.digraph);
     let aug = insert_dummy_nodes(&dag, &la);
     let ordering = minimise_crossings(&aug);
-    let layout_nodes = assign_coordinates(&ordering, &aug);
+    let layout_nodes = assign_coordinates_padded(&ordering, &aug, padding);
     let routed_edges = route_edges(gir, &layout_nodes, &aug, &reversed_edges);
     (layout_nodes, routed_edges)
+}
+
+/// Internal: coordinate assignment with a caller-specified padding value.
+fn assign_coordinates_padded(ordering: &[Vec<String>], aug: &AugmentedGraph, padding: usize) -> Vec<LayoutNode> {
+    let layer_y: Vec<usize> = {
+        let mut y = 0;
+        ordering
+            .iter()
+            .map(|_| {
+                let top = y;
+                y += NODE_HEIGHT + V_GAP;
+                top
+            })
+            .collect()
+    };
+
+    let id_to_label_len: HashMap<&str, usize> = aug
+        .graph
+        .node_indices()
+        .map(|ni| (aug.graph[ni].id.as_str(), aug.graph[ni].label.len()))
+        .collect();
+
+    let mut nodes: Vec<LayoutNode> = Vec::new();
+    for (layer_idx, layer_nodes) in ordering.iter().enumerate() {
+        let mut x = 0usize;
+        for (order, id) in layer_nodes.iter().enumerate() {
+            let label_len = id_to_label_len.get(id.as_str()).copied().unwrap_or(0);
+            let width = if label_len == 0 && id.starts_with(DUMMY_PREFIX) {
+                1
+            } else {
+                label_len + 2 + 2 * padding // "[" + pad + label + pad + "]"
+            };
+            nodes.push(LayoutNode {
+                id: id.clone(),
+                layer: layer_idx,
+                order,
+                x,
+                y: layer_y[layer_idx],
+                width,
+                height: NODE_HEIGHT,
+            });
+            x += width + H_GAP;
+        }
+    }
+    nodes
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
