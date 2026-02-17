@@ -1,18 +1,29 @@
-"""Tests for layout.py — cycle removal (Phase 4).
+"""Tests for layout.py — cycle removal (Phase 4) + crossing minimization + coordinate assignment (Phase 6).
 
-Ports the 5 Rust cycle-removal tests:
+Phase 4 tests port the 5 Rust cycle-removal tests:
   - test_dag_has_no_reversed_edges
   - test_single_cycle_reversed
   - test_self_loop_reversed
   - test_complex_cycle
   - test_empty_graph
+
+Phase 6 tests cover:
+  - minimise_crossings (barycenter heuristic)
+  - count_crossings (inversion count)
+  - assign_coordinates / assign_coordinates_padded (TD + LR)
+  - label_dimensions helper
+  - LayoutNode dataclass
 """
 
 from __future__ import annotations
 
 import networkx as nx
 
-from mermaid_ascii.layout import CycleRemovalResult, greedy_fas_ordering, remove_cycles
+from mermaid_ascii.layout import (
+    CycleRemovalResult,
+    greedy_fas_ordering,
+    remove_cycles,
+)
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 

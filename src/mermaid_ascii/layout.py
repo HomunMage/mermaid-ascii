@@ -13,14 +13,10 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 import networkx as nx
 
-from mermaid_ascii.graph import EdgeData, NodeData
-
-if TYPE_CHECKING:
-    from mermaid_ascii.graph import GraphIR
+from mermaid_ascii.graph import EdgeData, GraphIR, NodeData
 
 # ─── Cycle Removal (Greedy-FAS) ───────────────────────────────────────────────
 
@@ -654,3 +650,419 @@ def assign_coordinates_padded(
                 n.x -= min_x
 
     return nodes
+
+
+# ─── Edge Routing (Orthogonal) ─────────────────────────────────────────────────
+
+
+@dataclass
+class Point:
+    """A 2D point in character coordinates (column, row)."""
+
+    x: int
+    y: int
+
+
+@dataclass
+class RoutedEdge:
+    """A routed edge with orthogonal waypoints.
+
+    The path goes: exit point (on source node border)
+                   → [intermediate bend points through inter-layer gaps]
+                   → entry point (on target node border).
+    """
+
+    from_id: str
+    to_id: str
+    label: str | None
+    edge_type: object  # ast.EdgeType
+    waypoints: list[Point]
+
+
+def route_edges(
+    gir: GraphIR,
+    layout_nodes: list[LayoutNode],
+    aug: AugmentedGraph,
+    reversed_edges: set[tuple[str, str]],
+) -> list[RoutedEdge]:
+    """Route all edges in `gir` orthogonally through inter-layer gap spaces.
+
+    For each original edge u → v:
+      1. Exit point = bottom-centre of u's node box.
+      2. Entry point = top-centre of v's node box.
+      3. Route through the midpoint of each inter-layer gap, using dummy node
+         x-positions to align through intermediate layers.
+
+    Back-edges (reversed during cycle removal) are displayed with from/to
+    swapped so the arrowhead points in the intended direction.
+    Self-loops are skipped (removed during cycle removal).
+    """
+    # Fast id → LayoutNode lookup.
+    node_map: dict[str, LayoutNode] = {n.id: n for n in layout_nodes}
+
+    # Per-layer geometry: top-Y and bottom-Y of tallest node in each layer.
+    layer_count = max((n.layer for n in layout_nodes), default=-1) + 1
+    layer_top_y: list[int] = [10**9] * max(layer_count, 1)
+    layer_bottom_y: list[int] = [0] * max(layer_count, 1)
+    for n in layout_nodes:
+        if n.y < layer_top_y[n.layer]:
+            layer_top_y[n.layer] = n.y
+        bot = n.y + n.height
+        if bot > layer_bottom_y[n.layer]:
+            layer_bottom_y[n.layer] = bot
+
+    # Build lookup: (original_src_id, original_tgt_id) → dummy x-positions per gap.
+    dummy_xs_map: dict[tuple[str, str], list[int]] = {}
+    for de in aug.dummy_edges:
+        xs = [node_map[did].x + node_map[did].width // 2 for did in de.dummy_ids if did in node_map]
+        dummy_xs_map[(de.original_src, de.original_tgt)] = xs
+
+    routes: list[RoutedEdge] = []
+
+    for src, tgt, edge_attrs in gir.digraph.edges(data=True):
+        # Self-loops were removed during cycle removal — skip.
+        if src == tgt:
+            continue
+
+        edge_data = edge_attrs.get("data")
+        is_reversed = (src, tgt) in reversed_edges
+
+        # Visual from/to: flip if this is a reversed back-edge.
+        if is_reversed:
+            vis_from, vis_to = tgt, src
+        else:
+            vis_from, vis_to = src, tgt
+
+        from_node = node_map.get(vis_from)
+        to_node = node_map.get(vis_to)
+        if from_node is None or to_node is None:
+            continue
+
+        # Retrieve dummy x-positions for skip-level routing (empty for adjacent edges).
+        dummy_xs = dummy_xs_map.get((vis_from, vis_to), [])
+
+        waypoints = compute_orthogonal_waypoints(
+            from_node,
+            to_node,
+            layer_top_y,
+            layer_bottom_y,
+            dummy_xs,
+        )
+
+        label = edge_data.label if edge_data else None
+        edge_type = edge_data.edge_type if edge_data else None
+
+        routes.append(
+            RoutedEdge(
+                from_id=vis_from,
+                to_id=vis_to,
+                label=label,
+                edge_type=edge_type,
+                waypoints=waypoints,
+            )
+        )
+
+    return routes
+
+
+def compute_orthogonal_waypoints(
+    from_node: LayoutNode,
+    to_node: LayoutNode,
+    layer_top_y: list[int],
+    layer_bottom_y: list[int],
+    dummy_xs: list[int],
+) -> list[Point]:
+    """Compute orthogonal waypoints for a single edge from `from_node` to `to_node`.
+
+    Strategy (TD layout):
+      - Exit = bottom-centre of `from_node`.
+      - Entry = top-centre of `to_node`.
+      - For each inter-layer gap between from.layer and to.layer, drop a bend
+        point at the midpoint row of that gap. Use dummy_xs[i] for the x
+        position at gap i, or fall back to exit_x / entry_x.
+      - Same-layer edges get a U-shape looping below the layer.
+    """
+    exit_x = from_node.x + from_node.width // 2
+    exit_y = from_node.y + from_node.height - 1  # bottom border row
+    entry_x = to_node.x + to_node.width // 2
+    entry_y = to_node.y  # top border row
+
+    src_layer = from_node.layer
+    tgt_layer = to_node.layer
+
+    # Same-layer: U-shape going below the layer.
+    if src_layer == tgt_layer:
+        bot = layer_bottom_y[src_layer] if src_layer < len(layer_bottom_y) else exit_y + 1
+        below_y = bot + V_GAP // 2
+        return [
+            Point(x=exit_x, y=exit_y),
+            Point(x=exit_x, y=below_y),
+            Point(x=entry_x, y=below_y),
+            Point(x=entry_x, y=entry_y),
+        ]
+
+    low_layer = min(src_layer, tgt_layer)
+    high_layer = max(src_layer, tgt_layer)
+
+    waypoints: list[Point] = [Point(x=exit_x, y=exit_y)]
+
+    gaps = high_layer - low_layer
+    for gap_idx in range(gaps):
+        gap = low_layer + gap_idx
+
+        # Midpoint row of the inter-layer gap.
+        gap_start = layer_bottom_y[gap] if gap < len(layer_bottom_y) else exit_y + 1
+        gap_end = layer_top_y[gap + 1] if gap + 1 < len(layer_top_y) else gap_start + V_GAP
+        mid_y = gap_start + max(0, gap_end - gap_start) // 2
+
+        # X at this gap: use dummy node centre if available, else exit_x or entry_x.
+        if gap_idx < len(dummy_xs):
+            gap_x = dummy_xs[gap_idx]
+        elif gap_idx == 0:
+            gap_x = exit_x
+        else:
+            gap_x = entry_x
+
+        last_wp = waypoints[-1]
+
+        # Horizontal move (if needed), then vertical move to mid_y.
+        if last_wp.x != gap_x:
+            waypoints.append(Point(x=gap_x, y=last_wp.y))
+        waypoints.append(Point(x=gap_x, y=mid_y))
+
+    # Final horizontal move to entry_x, then down to entry_y.
+    last_wp = waypoints[-1]
+    if last_wp.x != entry_x:
+        waypoints.append(Point(x=entry_x, y=last_wp.y))
+    waypoints.append(Point(x=entry_x, y=entry_y))
+
+    return waypoints
+
+
+# ─── Compound Node (Subgraph Collapse/Expand) ──────────────────────────────────
+
+COMPOUND_PREFIX = "__sg_"
+
+# Gap between member nodes inside a subgraph.
+_SG_INNER_GAP: int = 1
+# Padding between subgraph border and member nodes (left/right).
+_SG_PAD_X: int = 1
+
+
+@dataclass
+class CompoundInfo:
+    """Information about a collapsed subgraph (compound node)."""
+
+    sg_name: str
+    compound_id: str
+    member_ids: list[str]
+    member_widths: list[int]
+    member_heights: list[int]
+    max_member_height: int
+    description: str | None
+
+
+def collapse_subgraphs(gir: GraphIR, padding: int) -> tuple[GraphIR, list[CompoundInfo]]:
+    """Collapse subgraphs into compound nodes for layout.
+
+    For each subgraph with members, replaces the member nodes with a single
+    compound node sized to contain all members horizontally. Cross-boundary
+    edges are redirected to the compound node. Internal edges are dropped.
+    """
+    from mermaid_ascii import ast as mast
+    from mermaid_ascii.graph import NodeData
+
+    # Map member_id → subgraph name.
+    member_to_sg: dict[str, str] = {}
+    compounds: list[CompoundInfo] = []
+
+    for sg_name, members in gir.subgraph_members:
+        compound_id = f"{COMPOUND_PREFIX}{sg_name}"
+
+        member_widths: list[int] = []
+        member_heights: list[int] = []
+
+        for mid in members:
+            if mid in gir.digraph.nodes:
+                node_attrs = gir.digraph.nodes[mid]
+                data: NodeData | None = node_attrs.get("data")
+                if data is not None:
+                    max_line_w, line_count = label_dimensions(data.label)
+                    member_widths.append(max_line_w + 2 + 2 * padding)
+                    member_heights.append(2 + line_count)
+                else:
+                    member_widths.append(3 + 2 * padding)
+                    member_heights.append(NODE_HEIGHT)
+            else:
+                member_widths.append(3 + 2 * padding)
+                member_heights.append(NODE_HEIGHT)
+            member_to_sg[mid] = sg_name
+
+        max_member_height = max(member_heights, default=NODE_HEIGHT)
+        description = gir.subgraph_descriptions.get(sg_name)
+
+        compounds.append(
+            CompoundInfo(
+                sg_name=sg_name,
+                compound_id=compound_id,
+                member_ids=list(members),
+                member_widths=member_widths,
+                member_heights=member_heights,
+                max_member_height=max_member_height,
+                description=description,
+            )
+        )
+
+    # Build sg_name → compound_id lookup.
+    sg_to_compound: dict[str, str] = {c.sg_name: c.compound_id for c in compounds}
+
+    def resolve_endpoint(node_id: str) -> str:
+        if node_id in member_to_sg:
+            return sg_to_compound[member_to_sg[node_id]]
+        if node_id in sg_to_compound:
+            return sg_to_compound[node_id]
+        return node_id
+
+    # Build the collapsed graph.
+    new_digraph: nx.DiGraph = nx.DiGraph()
+
+    # Add non-member, non-subgraph-ref nodes.
+    for node_id in gir.digraph.nodes:
+        if node_id in member_to_sg:
+            continue
+        if node_id in sg_to_compound:
+            continue
+        new_digraph.add_node(node_id, **gir.digraph.nodes[node_id])
+
+    # Add compound nodes.
+    for ci in compounds:
+        compound_data = NodeData(
+            id=ci.compound_id,
+            label=ci.sg_name,
+            shape=mast.NodeShape.Rectangle,
+            attrs=[],
+            subgraph=None,
+        )
+        new_digraph.add_node(ci.compound_id, data=compound_data)
+
+    # Add edges, redirecting member/subgraph endpoints to compound nodes.
+    added_edges: set[tuple[str, str]] = set()
+    for src, tgt, edge_attrs in gir.digraph.edges(data=True):
+        actual_src = resolve_endpoint(src)
+        actual_tgt = resolve_endpoint(tgt)
+
+        # Both resolved to same compound node → internal edge, skip.
+        if actual_src == actual_tgt:
+            continue
+
+        key = (actual_src, actual_tgt)
+        if key in added_edges:
+            continue
+        added_edges.add(key)
+
+        new_digraph.add_edge(actual_src, actual_tgt, **edge_attrs)
+
+    collapsed = GraphIR(
+        digraph=new_digraph,
+        direction=gir.direction,
+        subgraph_members=[],
+        subgraph_descriptions={},
+    )
+
+    return collapsed, compounds
+
+
+def compute_compound_dimensions(compounds: list[CompoundInfo], padding: int) -> dict[str, tuple[int, int]]:
+    """Compute dimension overrides for compound nodes: id → (width, height)."""
+    overrides: dict[str, tuple[int, int]] = {}
+    for ci in compounds:
+        total_member_w = sum(ci.member_widths)
+        gaps = (len(ci.member_ids) - 1) * _SG_INNER_GAP if len(ci.member_ids) > 1 else 0
+        content_w = total_member_w + gaps
+        title_w = len(ci.sg_name) + 4
+        desc_w = len(ci.description) + 4 if ci.description else 0
+        inner_w = max(content_w, title_w, desc_w)
+        width = 2 + 2 * _SG_PAD_X + inner_w
+
+        desc_rows = 1 if ci.description else 0
+
+        # height = top border + title row + member height + desc rows + bottom border
+        height = 3 + desc_rows if not ci.member_ids else 2 + 1 + ci.max_member_height + desc_rows
+
+        _ = padding  # padding already factored into member widths
+        overrides[ci.compound_id] = (width, height)
+    return overrides
+
+
+def expand_compound_nodes(layout_nodes: list[LayoutNode], compounds: list[CompoundInfo]) -> list[LayoutNode]:
+    """Expand compound nodes by adding member nodes positioned inside them."""
+    compound_map: dict[str, CompoundInfo] = {c.compound_id: c for c in compounds}
+
+    result: list[LayoutNode] = []
+
+    for ln in layout_nodes:
+        result.append(ln)  # keep compound node (for border rendering)
+
+        ci = compound_map.get(ln.id)
+        if ci is not None:
+            # Place member nodes horizontally inside compound.
+            member_x = ln.x + 1 + _SG_PAD_X  # border + padding
+            member_y = ln.y + 2  # border + title row
+
+            for i, mid in enumerate(ci.member_ids):
+                result.append(
+                    LayoutNode(
+                        id=mid,
+                        layer=ln.layer,
+                        order=ln.order,
+                        x=member_x,
+                        y=member_y,
+                        width=ci.member_widths[i],
+                        height=ci.member_heights[i],
+                    )
+                )
+                member_x += ci.member_widths[i] + _SG_INNER_GAP
+
+    return result
+
+
+# ─── Full Layout Pipeline ──────────────────────────────────────────────────────
+
+
+def full_layout(gir: GraphIR) -> tuple[list[LayoutNode], list[RoutedEdge]]:
+    """Run the full layout pipeline and return positioned nodes + routed edges."""
+    return full_layout_with_padding(gir, NODE_PADDING)
+
+
+def full_layout_with_padding(gir: GraphIR, padding: int) -> tuple[list[LayoutNode], list[RoutedEdge]]:
+    """Like full_layout but allows the caller to control node padding."""
+    has_subgraphs = bool(gir.subgraph_members)
+
+    if not has_subgraphs:
+        # No subgraphs — use original pipeline.
+        la = LayerAssignment.assign(gir)
+        dag, reversed_edges = remove_cycles(gir.digraph)
+        aug = insert_dummy_nodes(dag, la)
+        ordering = minimise_crossings(aug)
+        layout_nodes = assign_coordinates_padded(ordering, aug, padding, {}, gir.direction)
+        routed_edges = route_edges(gir, layout_nodes, aug, reversed_edges)
+        return layout_nodes, routed_edges
+
+    # Collapse subgraphs into compound nodes.
+    collapsed, compounds = collapse_subgraphs(gir, padding)
+    dim_overrides = compute_compound_dimensions(compounds, padding)
+
+    # Run Sugiyama on collapsed graph.
+    la = LayerAssignment.assign(collapsed)
+    dag, reversed_edges = remove_cycles(collapsed.digraph)
+    aug = insert_dummy_nodes(dag, la)
+    ordering = minimise_crossings(aug)
+    layout_nodes = assign_coordinates_padded(ordering, aug, padding, dim_overrides, gir.direction)
+
+    # Expand compound nodes → add member nodes inside.
+    expanded = expand_compound_nodes(layout_nodes, compounds)
+
+    # Route edges using collapsed graph (edges reference compound node ids).
+    routed_edges = route_edges(collapsed, expanded, aug, reversed_edges)
+
+    return expanded, routed_edges
