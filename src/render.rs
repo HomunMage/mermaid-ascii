@@ -4,7 +4,7 @@
 /// grid and converts it to a printable string.
 ///
 /// ## Layer order (paint last wins):
-///   1. Subgraph borders (not yet implemented — stub)
+///   1. Subgraph borders
 ///   2. Node boxes
 ///   3. Edge lines (horizontal and vertical segments)
 ///   4. Edge corners / junctions (merged using Unicode box-drawing rules)
@@ -16,6 +16,10 @@
 /// The renderer supports two character sets:
 /// - Unicode box-drawing (default): `┌ ┐ └ ┘ ─ │ ├ ┤ ┬ ┴ ┼ ► ▼ ◄ ▲`
 /// - ASCII fallback:                `+ + + + - | + + + + + > v < ^`
+
+use crate::ast::{EdgeType, NodeShape};
+use crate::graph::GraphIR;
+use crate::layout::{LayoutNode, RoutedEdge, DUMMY_PREFIX};
 
 // ─── Geometry Types ───────────────────────────────────────────────────────────
 
@@ -355,6 +359,336 @@ impl Canvas {
         let trimmed = out.trim_end_matches('\n');
         format!("{}\n", trimmed)
     }
+}
+
+// ─── Node Rendering ───────────────────────────────────────────────────────────
+
+/// Box characters for each node shape.
+fn box_chars_for_shape(shape: &NodeShape, cs: CharSet) -> BoxChars {
+    match shape {
+        NodeShape::Rectangle => BoxChars::for_charset(cs),
+        NodeShape::Rounded => {
+            // Rounded corners: ╭ ╮ ╰ ╯
+            let mut bc = BoxChars::unicode();
+            if cs == CharSet::Ascii {
+                return BoxChars::ascii();
+            }
+            bc.top_left = '╭';
+            bc.top_right = '╮';
+            bc.bottom_left = '╰';
+            bc.bottom_right = '╯';
+            bc
+        }
+        NodeShape::Diamond => {
+            // Diamond uses / \ characters for corners
+            let mut bc = BoxChars::for_charset(cs);
+            bc.top_left = '/';
+            bc.top_right = '\\';
+            bc.bottom_left = '\\';
+            bc.bottom_right = '/';
+            bc
+        }
+        NodeShape::Circle => {
+            // Circle uses ( ) for left/right borders
+            let mut bc = BoxChars::for_charset(cs);
+            bc.top_left = '(';
+            bc.top_right = ')';
+            bc.bottom_left = '(';
+            bc.bottom_right = ')';
+            bc.vertical = ' '; // no side bars — parens serve as borders
+            bc
+        }
+    }
+}
+
+/// Paint a single node box with its label onto the canvas.
+///
+/// Layout (for Rectangle, height=3):
+/// ```
+///   ┌─────────┐
+///   │  Label  │
+///   └─────────┘
+/// ```
+fn paint_node(canvas: &mut Canvas, ln: &LayoutNode, shape: &NodeShape, label: &str) {
+    let x = ln.x;
+    let y = ln.y;
+    let w = ln.width;
+    let h = ln.height;
+
+    let bc = box_chars_for_shape(shape, canvas.charset);
+
+    // Draw the outer box border.
+    let rect = Rect::new(x, y, w, h);
+    canvas.draw_box(&rect, &bc);
+
+    // Write label centered in the middle row (for h=3, row offset 1).
+    let inner_w = w.saturating_sub(2);
+    let mid_row_offset = h / 2; // for h=3: offset=1
+    let label_row = y + mid_row_offset;
+
+    // Center the label within the inner width.
+    let label_chars: Vec<char> = label.chars().collect();
+    let label_len = label_chars.len();
+    let pad = inner_w.saturating_sub(label_len) / 2;
+    let col_start = x + 1 + pad;
+
+    canvas.write_str(col_start, label_row, label);
+}
+
+// ─── Subgraph Border Rendering ────────────────────────────────────────────────
+
+/// Paint a dashed bounding box around the nodes in each subgraph.
+///
+/// The border is placed 2 columns / 1 row outside the member nodes' bounding box.
+/// The subgraph name is embedded in the top border row.
+fn paint_subgraph_borders(
+    gir: &GraphIR,
+    layout_nodes: &[LayoutNode],
+    canvas: &mut Canvas,
+) {
+    use std::collections::HashMap;
+    let node_pos: HashMap<&str, &LayoutNode> =
+        layout_nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+
+    let bc = BoxChars::for_charset(canvas.charset);
+
+    for (sg_name, members) in &gir.subgraph_members {
+        if members.is_empty() {
+            continue;
+        }
+
+        // Compute bounding box of member nodes.
+        let mut min_x = usize::MAX;
+        let mut min_y = usize::MAX;
+        let mut max_x = 0usize;
+        let mut max_y = 0usize;
+
+        for member_id in members {
+            if let Some(ln) = node_pos.get(member_id.as_str()) {
+                if ln.x < min_x { min_x = ln.x; }
+                if ln.y < min_y { min_y = ln.y; }
+                let right = ln.x + ln.width;
+                let bottom = ln.y + ln.height;
+                if right > max_x { max_x = right; }
+                if bottom > max_y { max_y = bottom; }
+            }
+        }
+
+        if min_x == usize::MAX {
+            continue; // no positioned members
+        }
+
+        // Expand bounding box by margin.
+        let margin_x = 2;
+        let margin_y = 1;
+        let bx = min_x.saturating_sub(margin_x);
+        let by = min_y.saturating_sub(margin_y);
+        let bw = (max_x + margin_x).saturating_sub(bx);
+        let bh = (max_y + margin_y).saturating_sub(by);
+
+        // Draw the subgraph border box.
+        let rect = Rect::new(bx, by, bw, bh);
+        canvas.draw_box(&rect, &bc);
+
+        // Embed subgraph name in top border (overwrite some '─' chars).
+        let label = format!(" {} ", sg_name);
+        let label_col = bx + 2;
+        if label.len() + 4 <= bw {
+            canvas.write_str(label_col, by, &label);
+        }
+    }
+}
+
+// ─── Edge Rendering ───────────────────────────────────────────────────────────
+
+/// Determine the EdgeType for a visual edge from `from_id` to `to_id`.
+///
+/// Searches the original GraphIR for a matching edge (in either direction,
+/// since back-edges are flipped for display). Falls back to `Arrow`.
+fn edge_type_for(gir: &GraphIR, from_id: &str, to_id: &str) -> EdgeType {
+    use petgraph::visit::EdgeRef;
+
+    // Check forward direction.
+    if let Some(&from_idx) = gir.node_index.get(from_id) {
+        for e in gir.digraph.edges(from_idx) {
+            if gir.digraph[e.target()].id == to_id {
+                return e.weight().edge_type.clone();
+            }
+        }
+    }
+    // Check reverse direction (for reversed back-edges displayed as forward).
+    if let Some(&to_idx) = gir.node_index.get(to_id) {
+        for e in gir.digraph.edges(to_idx) {
+            if gir.digraph[e.target()].id == from_id {
+                return e.weight().edge_type.clone();
+            }
+        }
+    }
+    EdgeType::Arrow
+}
+
+/// Select horizontal and vertical line characters for an edge type.
+fn line_chars_for(edge_type: &EdgeType, cs: CharSet) -> (char, char) {
+    let bc = BoxChars::for_charset(cs);
+    match edge_type {
+        EdgeType::ThickArrow | EdgeType::DoubleLine => ('═', '║'),
+        EdgeType::DottedArrow => ('╌', '╎'),
+        _ => (bc.horizontal, bc.vertical),
+    }
+}
+
+/// Paint a single routed edge: line segments + arrowhead + optional label.
+fn paint_edge(canvas: &mut Canvas, re: &RoutedEdge, edge_type: &EdgeType) {
+    if re.waypoints.len() < 2 {
+        return;
+    }
+
+    let cs = canvas.charset;
+    let (h_ch, v_ch) = line_chars_for(edge_type, cs);
+    let bc = BoxChars::for_charset(cs);
+
+    // Draw each segment between consecutive waypoints.
+    for i in 0..re.waypoints.len() - 1 {
+        let p0 = &re.waypoints[i];
+        let p1 = &re.waypoints[i + 1];
+
+        if p0.y == p1.y {
+            // Horizontal segment.
+            canvas.hline(p0.y, p0.x, p1.x, h_ch);
+        } else if p0.x == p1.x {
+            // Vertical segment.
+            canvas.vline(p0.x, p0.y, p1.y, v_ch);
+        }
+        // Diagonal segments not supported (orthogonal routing only).
+    }
+
+    // Arrowhead at the last waypoint (entry point into target node).
+    let last = re.waypoints.last().unwrap();
+    let prev = &re.waypoints[re.waypoints.len() - 2];
+
+    // Undirected edges (Line) get no arrowhead.
+    if edge_type != &EdgeType::Line {
+        let arrow = if last.y < prev.y {
+            bc.arrow_up
+        } else if last.y > prev.y {
+            bc.arrow_down
+        } else if last.x > prev.x {
+            bc.arrow_right
+        } else {
+            bc.arrow_left
+        };
+        canvas.set(last.x, last.y, arrow);
+    }
+
+    // Bidirectional edges get an arrowhead at the start too.
+    if edge_type == &EdgeType::BidirArrow {
+        let first = &re.waypoints[0];
+        let second = &re.waypoints[1];
+        let start_arrow = if first.y < second.y {
+            bc.arrow_up
+        } else if first.y > second.y {
+            bc.arrow_down
+        } else if first.x > second.x {
+            bc.arrow_right
+        } else {
+            bc.arrow_left
+        };
+        canvas.set(first.x, first.y, start_arrow);
+    }
+
+    // Edge label: placed at the midpoint waypoint, one row above the line.
+    if let Some(label) = &re.label {
+        let mid = re.waypoints.len() / 2;
+        let lp = &re.waypoints[mid];
+        let label_y = lp.y.saturating_sub(1);
+        canvas.write_str(lp.x, label_y, label);
+    }
+}
+
+// ─── Public Render Entry Point ────────────────────────────────────────────────
+
+/// Compute the canvas dimensions needed to fit all nodes and edge waypoints.
+pub fn canvas_dimensions(layout_nodes: &[LayoutNode], routed_edges: &[RoutedEdge]) -> (usize, usize) {
+    let mut max_col = 40usize;
+    let mut max_row = 10usize;
+
+    for n in layout_nodes {
+        if n.id.starts_with(DUMMY_PREFIX) {
+            continue;
+        }
+        max_col = max_col.max(n.x + n.width + 2);
+        max_row = max_row.max(n.y + n.height + 4);
+    }
+    for re in routed_edges {
+        for p in &re.waypoints {
+            max_col = max_col.max(p.x + 4);
+            max_row = max_row.max(p.y + 4);
+        }
+    }
+
+    (max_col, max_row)
+}
+
+/// Render a fully-laid-out graph to a multi-line String.
+///
+/// # Arguments
+/// * `gir`          — The graph IR (provides node shapes, subgraph membership, edge types).
+/// * `layout_nodes` — Positioned nodes from the layout phase (may include dummy nodes).
+/// * `routed_edges` — Routed edges with waypoints from the edge routing phase.
+/// * `unicode`      — `true` for Unicode box-drawing; `false` for ASCII fallback.
+pub fn render(
+    gir: &GraphIR,
+    layout_nodes: &[LayoutNode],
+    routed_edges: &[RoutedEdge],
+    unicode: bool,
+) -> String {
+    use std::collections::HashMap;
+
+    let cs = if unicode { CharSet::Unicode } else { CharSet::Ascii };
+
+    // Filter out dummy nodes — they are layout artefacts, not rendered.
+    let real_nodes: Vec<&LayoutNode> = layout_nodes
+        .iter()
+        .filter(|n| !n.id.starts_with(DUMMY_PREFIX))
+        .collect();
+
+    if real_nodes.is_empty() {
+        return String::new();
+    }
+
+    let (width, height) = canvas_dimensions(layout_nodes, routed_edges);
+    let mut canvas = Canvas::new(width, height, cs);
+
+    // Build id → NodeData for shape / label lookup.
+    let node_data_map: HashMap<&str, _> = gir
+        .digraph
+        .node_indices()
+        .map(|ni| (gir.digraph[ni].id.as_str(), &gir.digraph[ni]))
+        .collect();
+
+    // 1. Subgraph borders (drawn first so node boxes paint over them).
+    paint_subgraph_borders(gir, layout_nodes, &mut canvas);
+
+    // 2. Node boxes + labels.
+    for ln in &real_nodes {
+        let shape = node_data_map
+            .get(ln.id.as_str())
+            .map(|d| &d.shape)
+            .unwrap_or(&NodeShape::Rectangle);
+        let label = node_data_map
+            .get(ln.id.as_str())
+            .map(|d| d.label.as_str())
+            .unwrap_or(ln.id.as_str());
+        paint_node(&mut canvas, ln, shape, label);
+    }
+
+    // 3–5. Edges: line segments, arrowheads, labels.
+    for re in routed_edges {
+        let edge_type = edge_type_for(gir, &re.from_id, &re.to_id);
+        paint_edge(&mut canvas, re, &edge_type);
+    }
+
+    canvas.to_string()
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
