@@ -357,3 +357,300 @@ def insert_dummy_nodes(dag: nx.DiGraph, la: LayerAssignment) -> AugmentedGraph:
         layer_count=layer_count,
         dummy_edges=dummy_edges,
     )
+
+
+# ─── Crossing Minimization (Barycenter) ───────────────────────────────────────
+
+# Character-unit geometry constants (TD layout).
+NODE_PADDING: int = 1  # spaces inside brackets on each side of label
+H_GAP: int = 4  # horizontal gap (chars) between nodes in same layer
+V_GAP: int = 3  # vertical gap (rows) between adjacent layers
+NODE_HEIGHT: int = 3  # top-border + text-row + bottom-border
+
+
+@dataclass
+class LayoutNode:
+    """A positioned node in the layout."""
+
+    id: str
+    layer: int
+    order: int
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+def minimise_crossings(aug: AugmentedGraph) -> list[list[str]]:
+    """Minimise edge crossings using the barycenter heuristic.
+
+    Takes the augmented graph (with dummy nodes) and returns an ordering for
+    each layer that reduces edge crossings. Multiple top-down + bottom-up passes
+    are run until the crossing count stops improving (or a pass limit is hit).
+
+    Returns a list[list[str]] — one inner list per layer, in minimised order.
+    """
+    layer_count = aug.layer_count
+
+    # Initial ordering: group by layer, sort alphabetically for determinism.
+    ordering: list[list[str]] = [[] for _ in range(layer_count)]
+    for node_id in sorted(aug.layers.keys()):
+        layer = aug.layers[node_id]
+        ordering[layer].append(node_id)
+
+    max_passes = 24
+    best = count_crossings(ordering, aug.graph)
+
+    for _pass in range(max_passes):
+        # Top-down sweep: use predecessor positions as barycenter weights.
+        for layer_idx in range(1, layer_count):
+            prev_ids = ordering[layer_idx - 1]
+            prev: dict[str, float] = {nid: float(i) for i, nid in enumerate(prev_ids)}
+            ordering[layer_idx].sort(key=lambda a, p=prev: _barycenter(a, aug.graph, p, "incoming"))
+
+        # Bottom-up sweep: use successor positions as barycenter weights.
+        for layer_idx in range(max(0, layer_count - 2), -1, -1):
+            next_ids = ordering[layer_idx + 1]
+            nxt: dict[str, float] = {nid: float(i) for i, nid in enumerate(next_ids)}
+            ordering[layer_idx].sort(key=lambda a, n=nxt: _barycenter(a, aug.graph, n, "outgoing"))
+
+        new = count_crossings(ordering, aug.graph)
+        if new >= best:
+            break
+        best = new
+
+    return ordering
+
+
+def _barycenter(
+    node_id: str,
+    graph: nx.DiGraph,
+    neighbor_pos: dict[str, float],
+    direction: str,
+) -> float:
+    """Average position of a node's neighbours in the adjacent layer (barycenter weight).
+
+    direction: "incoming" to look at predecessors, "outgoing" for successors.
+    Returns float('inf') if the node has no neighbours in the adjacent layer.
+    """
+    if node_id not in graph:
+        return float("inf")
+
+    neighbors = list(graph.predecessors(node_id)) if direction == "incoming" else list(graph.successors(node_id))
+
+    positions = [neighbor_pos[nb] for nb in neighbors if nb in neighbor_pos]
+    if not positions:
+        return float("inf")
+    return sum(positions) / len(positions)
+
+
+def count_crossings(ordering: list[list[str]], graph: nx.DiGraph) -> int:
+    """Count edge crossings between consecutive layers (inversion count heuristic)."""
+    total = 0
+    for l_idx in range(len(ordering) - 1):
+        tgt_pos: dict[str, int] = {nid: i for i, nid in enumerate(ordering[l_idx + 1])}
+        edges: list[tuple[int, int]] = []
+        for sp, src_id in enumerate(ordering[l_idx]):
+            if src_id in graph:
+                for nb in graph.successors(src_id):
+                    if nb in tgt_pos:
+                        edges.append((sp, tgt_pos[nb]))
+        for i in range(len(edges)):
+            for j in range(i + 1, len(edges)):
+                ei, ej = edges[i], edges[j]
+                if (ei[0] < ej[0] and ei[1] > ej[1]) or (ei[0] > ej[0] and ei[1] < ej[1]):
+                    total += 1
+    return total
+
+
+# ─── Coordinate Assignment ────────────────────────────────────────────────────
+
+
+def label_dimensions(label: str) -> tuple[int, int]:
+    """Compute (max_line_width, line_count) for a label that may contain newlines."""
+    if not label:
+        return (0, 1)
+    lines = label.split("\n")
+    max_w = max(len(line) for line in lines)
+    return (max_w, len(lines))
+
+
+def assign_coordinates(ordering: list[list[str]], aug: AugmentedGraph) -> list[LayoutNode]:
+    """Assign (x, y) character coordinates to every node in the augmented graph.
+
+    Layout is top-down (TD): x = column, y = row. The renderer transposes for LR.
+    Dummy nodes are given width 1 to minimise horizontal space consumption.
+    """
+    from mermaid_ascii import ast as mast
+
+    return assign_coordinates_padded(ordering, aug, NODE_PADDING, {}, mast.Direction.TD)
+
+
+def assign_coordinates_padded(
+    ordering: list[list[str]],
+    aug: AugmentedGraph,
+    padding: int,
+    size_overrides: dict[str, tuple[int, int]],
+    direction: object,
+) -> list[LayoutNode]:
+    """Internal: coordinate assignment with caller-specified padding value and direction.
+
+    size_overrides maps node id → (width, height) for compound nodes or
+    other nodes whose dimensions can't be computed from the label alone.
+
+    For LR/RL directions, node width↔height are swapped before layout so
+    Sugiyama produces a rotated arrangement. The renderer then transposes
+    (x↔y) to produce the final left-to-right output.
+    """
+    from mermaid_ascii import ast as mast
+
+    is_lr_or_rl = direction in (mast.Direction.LR, mast.Direction.RL)
+
+    # When LR/RL: swap H_GAP↔V_GAP so inter-layer spacing is applied correctly.
+    h_gap = V_GAP if is_lr_or_rl else H_GAP
+    v_gap = H_GAP if is_lr_or_rl else V_GAP
+
+    # Build label info map: id -> (max_line_width, line_count)
+    id_to_label_info: dict[str, tuple[int, int]] = {}
+    for node_id in aug.graph.nodes:
+        node_attrs = aug.graph.nodes[node_id]
+        node_data: NodeData | None = node_attrs.get("data")
+        if node_data is not None:
+            id_to_label_info[node_id] = label_dimensions(node_data.label)
+        else:
+            id_to_label_info[node_id] = (len(node_id), 1)
+
+    def node_dims(node_id: str) -> tuple[int, int]:
+        """Compute (width, height) for a node, respecting overrides."""
+        if node_id in size_overrides:
+            dims = size_overrides[node_id]
+            return (dims[1], dims[0]) if is_lr_or_rl else dims
+        max_line_w, line_count = id_to_label_info.get(node_id, (0, 1))
+        is_dummy = max_line_w == 0 and node_id.startswith(DUMMY_PREFIX)
+        width = 1 if is_dummy else max_line_w + 2 + 2 * padding
+        height = NODE_HEIGHT if is_dummy else 2 + line_count
+        # For LR/RL: swap so layout treats width as the cross-axis dimension.
+        if is_lr_or_rl:
+            return (height, width)
+        return (width, height)
+
+    # First pass: compute per-layer max height.
+    layer_max_height: list[int] = [NODE_HEIGHT] * len(ordering)
+    for layer_idx, layer_nodes in enumerate(ordering):
+        for node_id in layer_nodes:
+            _, h = node_dims(node_id)
+            if h > layer_max_height[layer_idx]:
+                layer_max_height[layer_idx] = h
+
+    # Compute layer Y offsets using actual max heights.
+    layer_y: list[int] = []
+    y = 0
+    for h in layer_max_height:
+        layer_y.append(y)
+        y += h + v_gap
+
+    # Compute total width per layer for centering.
+    layer_total_widths: list[int] = []
+    for layer_nodes in ordering:
+        w_sum = sum(node_dims(nid)[0] for nid in layer_nodes)
+        gaps = (len(layer_nodes) - 1) * h_gap if len(layer_nodes) > 1 else 0
+        layer_total_widths.append(w_sum + gaps)
+
+    max_layer_w = max(layer_total_widths, default=0)
+    center_col = max_layer_w // 2
+
+    nodes: list[LayoutNode] = []
+    for layer_idx, layer_nodes in enumerate(ordering):
+        # Center this layer's midpoint on center_col.
+        offset = max(0, center_col - layer_total_widths[layer_idx] // 2)
+        x = offset
+        for order, node_id in enumerate(layer_nodes):
+            width, height = node_dims(node_id)
+            nodes.append(
+                LayoutNode(
+                    id=node_id,
+                    layer=layer_idx,
+                    order=order,
+                    x=x,
+                    y=layer_y[layer_idx],
+                    width=width,
+                    height=height,
+                )
+            )
+            x += width + h_gap
+
+    # ── Barycenter refinement: align layers with parent/child centers ──
+    #
+    # After initial center-based placement, shift each layer so the average
+    # center of its nodes aligns with the average center of their parents
+    # (top-down) or children (bottom-up). Only small shifts (≤ h_gap) are
+    # applied to correct integer-rounding misalignment.
+
+    node_idx: dict[str, int] = {n.id: i for i, n in enumerate(nodes)}
+
+    # Top-down pass: align each layer under its parent centers.
+    for layer_idx in range(1, len(ordering)):
+        sum_child = 0
+        sum_parent = 0
+        count = 0
+
+        for node_id in ordering[layer_idx]:
+            ni = node_idx[node_id]
+            child_center = nodes[ni].x + nodes[ni].width // 2
+
+            for src, tgt in aug.graph.edges():
+                if tgt == node_id and not src.startswith(DUMMY_PREFIX) and src in node_idx:
+                    pi = node_idx[src]
+                    if nodes[pi].layer + 1 == layer_idx:
+                        parent_center = nodes[pi].x + nodes[pi].width // 2
+                        sum_child += child_center
+                        sum_parent += parent_center
+                        count += 1
+
+        if count == 0:
+            continue
+        shift = sum_parent // count - sum_child // count
+        if abs(shift) > h_gap:
+            continue
+
+        for node_id in ordering[layer_idx]:
+            ni = node_idx[node_id]
+            nodes[ni].x = max(0, nodes[ni].x + shift)
+
+    # Bottom-up pass: align each layer over its child centers.
+    for layer_idx in range(max(0, len(ordering) - 2), -1, -1):
+        sum_node = 0
+        sum_child = 0
+        count = 0
+
+        for node_id in ordering[layer_idx]:
+            ni = node_idx[node_id]
+            node_center = nodes[ni].x + nodes[ni].width // 2
+
+            for src, tgt in aug.graph.edges():
+                if src == node_id and not tgt.startswith(DUMMY_PREFIX) and tgt in node_idx:
+                    ci = node_idx[tgt]
+                    if nodes[ci].layer == layer_idx + 1:
+                        child_center = nodes[ci].x + nodes[ci].width // 2
+                        sum_node += node_center
+                        sum_child += child_center
+                        count += 1
+
+        if count == 0:
+            continue
+        shift = sum_child // count - sum_node // count
+        if abs(shift) > h_gap:
+            continue
+
+        for node_id in ordering[layer_idx]:
+            ni = node_idx[node_id]
+            nodes[ni].x = max(0, nodes[ni].x + shift)
+
+    # Normalize: shift everything so the leftmost node starts at x=0.
+    if nodes:
+        min_x = min(n.x for n in nodes)
+        if min_x > 0:
+            for n in nodes:
+                n.x -= min_x
+
+    return nodes
