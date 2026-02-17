@@ -24,8 +24,11 @@ target
 _ref/
 
 # Agent orchestration
-_trigger
-out/worker.log
+_trigger*
+_task_queue
+_git.lock
+.orchestrator.pid
+out/worker_*.log
 out/orchestrator.log
 
 
