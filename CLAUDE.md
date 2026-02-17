@@ -6,6 +6,22 @@ Rust rewrite of graph-easy: DSL text input → Parse → Graph layout → ASCII/
 ## Autonomous Mode
 This project runs with autonomous Claude agents. **Never ask the user for permission or clarification. Just work.**
 
+## Workflow: Always Check Status Files First
+
+### On every conversation start:
+1. **Read `llm.plan.status`** — Understand the overall plan, current phase, and what's been verified
+2. **Read `llm.working.status`** — Understand what was last worked on and next steps
+3. Work on the current phase as indicated by these files
+
+### While working:
+- **Update `llm.working.status`** after completing meaningful work (finished a phase, hit a blocker, made a key decision)
+- **Update `llm.plan.status`** when checking off verification items `[ ]` → `[x]` or when plan changes
+- Keep both files reflecting the true current state
+
+### Status file conventions:
+- `llm.plan.status` — The master plan. Phases, verification checklists, architectural decisions. Update checkboxes as items are verified.
+- `llm.working.status` — Current session state. What phase we're in, what's done, what's next, any blockers.
+
 ## Development Cycle (CRITICAL — follow every time)
 
 **Small steps → Verify → Commit → Refactor → Commit**
