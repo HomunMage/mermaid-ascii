@@ -153,6 +153,36 @@ fn snapshot_disconnected_nodes() {
     insta::assert_snapshot!("disconnected_nodes", out);
 }
 
+// ─── Architecture diagram / compound node tests ────────────────────────────
+
+#[test]
+fn snapshot_subgraph_with_members() {
+    let src = "subgraph \"Frontend\" {\n  [Grid View]\n  [Timeline]\n  [Board View]\n}\n";
+    let out = render_dsl(src, true).expect("render failed");
+    insta::assert_snapshot!("subgraph_with_members", out);
+}
+
+#[test]
+fn snapshot_empty_subgraph_with_desc() {
+    let src = "subgraph \"Worker\" {\n  desc: \"runs background tasks\"\n}\n";
+    let out = render_dsl(src, true).expect("render failed");
+    insta::assert_snapshot!("empty_subgraph_with_desc", out);
+}
+
+#[test]
+fn snapshot_multiline_labels() {
+    let src = "[\"Line1\\nLine2\"] --> [B]\n";
+    let out = render_dsl(src, true).expect("render failed");
+    insta::assert_snapshot!("multiline_labels", out);
+}
+
+#[test]
+fn snapshot_architecture_diagram() {
+    let src = include_str!("../examples/architecture.txt");
+    let out = render_dsl(src, true).expect("render failed");
+    insta::assert_snapshot!("architecture_diagram", out);
+}
+
 #[test]
 fn snapshot_two_node_cycle_renders() {
     // A → B → A: a two-node cycle; layout must not panic and must produce output.

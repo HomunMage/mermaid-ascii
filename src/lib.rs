@@ -11,7 +11,7 @@ pub mod render;
 pub fn render_dsl(src: &str, unicode: bool) -> Result<String, String> {
     let ast_graph = parser::parse(src)?;
     let gir = graph::GraphIR::from_ast(&ast_graph);
-    if gir.node_count() == 0 {
+    if gir.node_count() == 0 && gir.subgraph_members.is_empty() {
         return Ok(String::new());
     }
     let (layout_nodes, routed_edges) = layout::full_layout(&gir);
@@ -22,7 +22,7 @@ pub fn render_dsl(src: &str, unicode: bool) -> Result<String, String> {
 pub fn render_dsl_padded(src: &str, unicode: bool, padding: usize) -> Result<String, String> {
     let ast_graph = parser::parse(src)?;
     let gir = graph::GraphIR::from_ast(&ast_graph);
-    if gir.node_count() == 0 {
+    if gir.node_count() == 0 && gir.subgraph_members.is_empty() {
         return Ok(String::new());
     }
     let (layout_nodes, routed_edges) = layout::full_layout_with_padding(&gir, padding);
