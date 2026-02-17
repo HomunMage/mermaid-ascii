@@ -1243,6 +1243,99 @@ fn assign_coordinates_padded(
             x += width + H_GAP;
         }
     }
+
+    // ── Barycenter refinement: align layers with parent/child centers ──
+    //
+    // After the initial center-based placement, shift each layer so the
+    // average center of its nodes aligns with the average center of their
+    // parents (top-down) or children (bottom-up).  Only small shifts
+    // (≤ H_GAP) are applied to correct integer-rounding misalignment
+    // without causing large displacements.
+
+    let node_idx: HashMap<String, usize> = nodes.iter().enumerate()
+        .map(|(i, n)| (n.id.clone(), i))
+        .collect();
+
+    // Top-down pass: align each layer under its parent centers.
+    for layer_idx in 1..ordering.len() {
+        let mut sum_child: isize = 0;
+        let mut sum_parent: isize = 0;
+        let mut count: usize = 0;
+
+        for id in &ordering[layer_idx] {
+            let ni = node_idx[id.as_str()];
+            let child_center = (nodes[ni].x + nodes[ni].width / 2) as isize;
+
+            for edge in aug.graph.edge_references() {
+                let src_id = &aug.graph[edge.source()].id;
+                let tgt_id = &aug.graph[edge.target()].id;
+                if tgt_id == id && !src_id.starts_with(DUMMY_PREFIX) {
+                    if let Some(&pi) = node_idx.get(src_id.as_str()) {
+                        if nodes[pi].layer + 1 == layer_idx {
+                            let parent_center = (nodes[pi].x + nodes[pi].width / 2) as isize;
+                            sum_child += child_center;
+                            sum_parent += parent_center;
+                            count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if count == 0 { continue; }
+        let shift = sum_parent / count as isize - sum_child / count as isize;
+        if shift.abs() > H_GAP as isize { continue; }
+
+        for id in &ordering[layer_idx] {
+            let ni = node_idx[id.as_str()];
+            nodes[ni].x = (nodes[ni].x as isize + shift).max(0) as usize;
+        }
+    }
+
+    // Bottom-up pass: align each layer over its child centers.
+    for layer_idx in (0..ordering.len().saturating_sub(1)).rev() {
+        let mut sum_node: isize = 0;
+        let mut sum_child: isize = 0;
+        let mut count: usize = 0;
+
+        for id in &ordering[layer_idx] {
+            let ni = node_idx[id.as_str()];
+            let node_center = (nodes[ni].x + nodes[ni].width / 2) as isize;
+
+            for edge in aug.graph.edge_references() {
+                let src_id = &aug.graph[edge.source()].id;
+                let tgt_id = &aug.graph[edge.target()].id;
+                if src_id == id && !tgt_id.starts_with(DUMMY_PREFIX) {
+                    if let Some(&ci) = node_idx.get(tgt_id.as_str()) {
+                        if nodes[ci].layer == layer_idx + 1 {
+                            let child_center = (nodes[ci].x + nodes[ci].width / 2) as isize;
+                            sum_node += node_center;
+                            sum_child += child_center;
+                            count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if count == 0 { continue; }
+        let shift = sum_child / count as isize - sum_node / count as isize;
+        if shift.abs() > H_GAP as isize { continue; }
+
+        for id in &ordering[layer_idx] {
+            let ni = node_idx[id.as_str()];
+            nodes[ni].x = (nodes[ni].x as isize + shift).max(0) as usize;
+        }
+    }
+
+    // Normalize: shift everything so the leftmost node starts at x=0.
+    let min_x = nodes.iter().map(|n| n.x).min().unwrap_or(0);
+    if min_x > 0 {
+        for n in &mut nodes {
+            n.x -= min_x;
+        }
+    }
+
     nodes
 }
 
