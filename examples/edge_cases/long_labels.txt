@@ -1,0 +1,3 @@
+# Very long labels — nodes with lengthy text
+[This is a very long node label that spans many characters] --> [Another quite lengthy label here]
+[Another quite lengthy label here] --> [Short]

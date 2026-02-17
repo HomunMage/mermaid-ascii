@@ -1,0 +1,2 @@
+# Self-loop — a node with an edge back to itself
+[Loop] --> [Loop]

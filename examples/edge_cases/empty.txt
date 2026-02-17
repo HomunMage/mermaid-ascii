@@ -1,0 +1,1 @@
+# Empty graph — no nodes or edges

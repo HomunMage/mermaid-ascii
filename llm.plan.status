@@ -1,0 +1,164 @@
+# mermaid-ascii-py — Master Plan
+# 1:1 Python port of mermaid-ascii-rust
+# Reference: ../mermaid-ascii-rust/src/
+
+## Dependency Mapping (Rust → Python)
+| Rust crate   | Python package  | Purpose                    |
+|--------------|-----------------|----------------------------|
+| pest         | parsimonious    | PEG parser generator       |
+| petgraph     | networkx        | Directed graph (DiGraph)   |
+| clap         | click           | CLI argument parsing       |
+| (built-in)   | pytest          | Testing                    |
+
+## Phase 0: Project Scaffold
+- [ ] `pyproject.toml` — name, version, Python >=3.12, dependencies (parsimonious, networkx, click), dev-deps (pytest), entry point `mermaid-ascii = "mermaid_ascii.__main__:main"`
+- [ ] `src/mermaid_ascii/__init__.py` — empty placeholder
+- [ ] `src/mermaid_ascii/__main__.py` — minimal `click` CLI that reads stdin/file, prints "not implemented"
+- [ ] `tests/__init__.py` + `tests/test_smoke.py` — smoke test: import works, CLI --help works
+- [ ] `Dockerfile` — multi-stage: python:3.12-slim builder → install uv → `uv sync` → `uv run python -m mermaid_ascii`; export stage copies installed package
+- [ ] `.gitignore` — Python standard: __pycache__, .venv, dist, *.egg-info, out/, _trigger_*, _task_queue, _git.lock
+- [ ] `examples/` — copy all .mm.md files from Rust repo
+- [ ] `examples/gen.sh` — adapted for Python: `uv run python -m mermaid_ascii "$src" -o "$out"`
+- [ ] Verify: `uv sync && uv run python -m pytest && uv run python -m mermaid_ascii --help`
+
+## Phase 1: AST (ast.py)
+Port `ast.rs` → `src/mermaid_ascii/ast.py`
+- [ ] `Direction` enum (LR, RL, TD, BT) with TD as default
+- [ ] `NodeShape` enum (Rectangle, Rounded, Diamond, Circle) with Rectangle as default
+- [ ] `EdgeType` enum (Arrow, Line, DottedArrow, DottedLine, ThickArrow, ThickLine, BidirArrow, BidirDotted, BidirThick)
+- [ ] `Attr` dataclass (key: str, value: str)
+- [ ] `Node` dataclass (id, label, shape, attrs) + `bare()` classmethod
+- [ ] `Edge` dataclass (from_id, to_id, edge_type, label, attrs)
+- [ ] `Subgraph` dataclass (name, nodes, edges, subgraphs, description, direction)
+- [ ] `Graph` dataclass (direction, nodes, edges, subgraphs)
+- [ ] Tests: `tests/test_ast.py` — construction, defaults, bare node
+- [ ] Verify: `uv run python -m pytest tests/test_ast.py`
+
+## Phase 2: Grammar + Parser (grammar.py, parser.py)
+Port `grammar.pest` + `parser.rs` → `src/mermaid_ascii/grammar.py` + `src/mermaid_ascii/parser.py`
+- [ ] `grammar.py` — PEG grammar string for parsimonious (translate pest syntax)
+- [ ] `parser.py` — `parse(input: str) -> Graph` function
+  - [ ] `parse_header` → Direction
+  - [ ] `parse_node_ref` → Node (id + optional shape/label)
+  - [ ] `parse_node_shape` → (NodeShape, label)
+  - [ ] `parse_edge_stmt` → (list[Node], list[Edge])
+  - [ ] `parse_edge_chain` → list of (EdgeType, Optional[label], Node)
+  - [ ] `parse_edge_connector` → EdgeType
+  - [ ] `parse_subgraph_block` → Subgraph
+  - [ ] `upsert_node` — first-definition-wins
+- [ ] Tests: `tests/test_parser.py` — port all 12 Rust parser tests
+  - [ ] test_parse_simple_chain
+  - [ ] test_parse_node_with_label
+  - [ ] test_parse_shapes
+  - [ ] test_parse_edge_label
+  - [ ] test_parse_flowchart_keyword
+  - [ ] test_parse_subgraph
+  - [ ] test_first_definition_wins
+  - [ ] test_parse_no_header
+  - [ ] test_parse_comments
+  - [ ] test_parse_edge_types
+  - [ ] test_parse_quoted_label
+  - [ ] test_parse_multiline_label
+- [ ] Verify: `uv run python -m pytest tests/test_parser.py`
+
+## Phase 3: Graph IR (graph.py)
+Port `graph.rs` → `src/mermaid_ascii/graph.py`
+- [ ] `NodeData` dataclass (id, label, shape, attrs, subgraph)
+- [ ] `EdgeData` dataclass (edge_type, label, attrs)
+- [ ] `GraphIR` class wrapping networkx DiGraph
+  - [ ] `from_ast(ast_graph)` — class method, flattens subgraphs
+  - [ ] `is_dag()` — cycle detection
+  - [ ] `topological_order()` — topo sort or None if cyclic
+  - [ ] `node_count()`, `edge_count()`
+  - [ ] `in_degree(node_id)`, `out_degree(node_id)`
+  - [ ] `adjacency_list()` — sorted
+- [ ] Helper functions: `collect_subgraph`, `collect_subgraph_edges`, `ensure_node`, `add_edge`
+- [ ] Tests: `tests/test_graph.py` — basic graph construction, subgraph flattening, cycle detection
+- [ ] Verify: `uv run python -m pytest tests/test_graph.py`
+
+## Phase 4: Layout — Cycle Removal (layout.py part 1)
+Port cycle removal from `layout.rs`
+- [ ] `remove_cycles(digraph)` → (dag_digraph, set[reversed_edge_ids])
+- [ ] `greedy_fas_ordering(digraph)` → list[node_id] ordering
+- [ ] `CycleRemovalResult` / return type
+- [ ] Tests: port 5 Rust tests (dag_no_reversed, single_cycle, self_loop, complex_cycle, empty_graph)
+- [ ] Verify: `uv run python -m pytest tests/test_layout.py`
+
+## Phase 5: Layout — Layer Assignment + Dummy Nodes (layout.py part 2)
+Port layer assignment and dummy node insertion from `layout.rs`
+- [ ] `LayerAssignment` class — `assign(gir)` fixed-point iteration
+- [ ] `insert_dummy_nodes(dag, la)` → `AugmentedGraph`
+- [ ] `AugmentedGraph` dataclass (graph, layers, layer_count, dummy_edges)
+- [ ] `DummyEdge` dataclass (original_src, original_tgt, dummy_ids, edge_data)
+- [ ] `DUMMY_PREFIX = "__dummy_"`
+- [ ] Tests: port 5 Rust dummy node tests (adjacent_no_dummy, long_edge_one_dummy, two_dummies, multiple_independent, mixed_short_long)
+- [ ] Verify: `uv run python -m pytest tests/test_layout.py`
+
+## Phase 6: Layout — Crossing Minimization + Coordinate Assignment (layout.py part 3)
+Port crossing minimization and coordinate assignment from `layout.rs`
+- [ ] `minimise_crossings(aug)` → list[list[str]] ordering per layer
+- [ ] `barycenter(node_id, ...)` helper
+- [ ] `count_crossings(ordering, ...)` helper
+- [ ] `assign_coordinates(ordering, aug)` → list[LayoutNode]
+- [ ] `assign_coordinates_padded(ordering, aug, padding, size_overrides, direction)` — internal
+- [ ] `LayoutNode` dataclass (id, layer, order, x, y, width, height)
+- [ ] Constants: NODE_PADDING, H_GAP, V_GAP, NODE_HEIGHT
+- [ ] Verify: basic coordinate assignment produces non-overlapping nodes
+
+## Phase 7: Layout — Edge Routing + Subgraph Compound Nodes (layout.py part 4)
+Port edge routing and compound node logic from `layout.rs`
+- [ ] `Point` dataclass (x, y)
+- [ ] `RoutedEdge` dataclass (from_id, to_id, label, edge_type, waypoints)
+- [ ] `route_edges(gir, layout_nodes, aug, reversed_edges)` → list[RoutedEdge]
+- [ ] `compute_orthogonal_waypoints(from_node, to_node, ...)` helper
+- [ ] `COMPOUND_PREFIX = "__sg_"`
+- [ ] `CompoundInfo` dataclass
+- [ ] `collapse_subgraphs(gir, padding)` → (GraphIR, list[CompoundInfo])
+- [ ] `compute_compound_dimensions(compounds, padding)` → dict
+- [ ] `expand_compound_nodes(layout_nodes, compounds)` → list[LayoutNode]
+- [ ] `full_layout(gir)` → (list[LayoutNode], list[RoutedEdge])
+- [ ] `full_layout_with_padding(gir, padding)` — with custom padding
+- [ ] Verify: edge routes have valid waypoints
+
+## Phase 8: Render (render.py)
+Port `render.rs` → `src/mermaid_ascii/render.py`
+- [ ] `CharSet` enum (Unicode, Ascii)
+- [ ] `BoxChars` dataclass with `unicode()`, `ascii()`, `for_charset(cs)` class methods
+- [ ] `Arms` dataclass — `from_char()`, `merge()`, `to_char()`
+- [ ] `Rect` dataclass
+- [ ] `Canvas` class (width, height, cells grid)
+  - [ ] `get()`, `set()`, `set_merge()` — junction merging
+  - [ ] `hline()`, `vline()`, `draw_box()`, `write_str()`
+  - [ ] `to_string()` — trailing-space trimmed
+- [ ] `paint_node()`, `paint_compound_node()`, `paint_subgraph_borders()`, `paint_edge()`
+- [ ] `box_chars_for_shape()`, `line_chars_for()`
+- [ ] Direction transforms: `transpose_layout()`, `flip_vertical()`, `flip_horizontal()`
+- [ ] `remap_char_vertical()`, `remap_char_horizontal()`
+- [ ] `canvas_dimensions()`, `render()` — public entry point
+- [ ] Tests: `tests/test_render.py` — port 12 Rust canvas/arms tests
+- [ ] Verify: `uv run python -m pytest tests/test_render.py`
+
+## Phase 9: Integration — __init__.py + __main__.py
+- [ ] `__init__.py` — `render_dsl(input: str, unicode: bool = True, padding: int = 1, direction: str | None = None) -> str`
+- [ ] `__main__.py` — full CLI with click:
+  - [ ] `input` argument (file or stdin)
+  - [ ] `--ascii / -a` flag
+  - [ ] `--direction / -d` option
+  - [ ] `--padding / -p` option (default 1)
+  - [ ] `--output / -o` option
+- [ ] Verify: `echo "graph TD\n    A --> B\n" | uv run python -m mermaid_ascii`
+
+## Phase 10: Examples + Dockerfile + CI
+- [ ] `examples/gen.sh` works: `bash examples/gen.sh` generates all `.out.txt` files
+- [ ] Visual review: `.out.txt` files match Rust output (or look correct)
+- [ ] `Dockerfile` builds and runs successfully
+- [ ] `.github/workflows/ci.yml` — test on push (uv sync, pytest)
+- [ ] `.github/workflows/release.yml` — build wheel, publish
+- [ ] Final cleanup: remove dead code, unused imports, etc.
+
+## Architecture Decisions
+- Use `src/` layout (`src/mermaid_ascii/`) per modern Python packaging
+- parsimonious for PEG parsing (closest to pest's PEG approach)
+- networkx DiGraph stores NodeData/EdgeData as node/edge attributes
+- All layout math stays as integer character coordinates (same as Rust)
+- Canvas is a list[list[str]] (rows × cols) — same as Rust Vec<Vec<char>>

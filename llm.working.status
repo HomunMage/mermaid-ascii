@@ -1,0 +1,25 @@
+# mermaid-ascii-py — Working Status
+
+## Current Phase: Phase 0 (Project Scaffold)
+## Status: NOT STARTED
+
+## What's Done
+- CLAUDE.md written with full project instructions
+- scripts/ directory created with agent team scripts (start, orchestrator, worker, checkpoint, rollback, stop)
+- llm.plan.status written with full 11-phase plan
+- llm.working.status created (this file)
+
+## What's Next
+- Phase 0: Create pyproject.toml, directory structure, Dockerfile, .gitignore, examples, gen.sh
+- Then Phase 1: AST dataclasses
+- Then Phase 2: Grammar + Parser (the big one)
+- Then Phases 3-8: Graph IR, Layout, Render
+- Then Phase 9-10: Integration, examples, CI
+
+## Blockers
+None.
+
+## Notes
+- Reference Rust code is at ../mermaid-ascii-rust/src/
+- All .mm.md example files need to be copied from ../mermaid-ascii-rust/examples/
+- parsimonious PEG grammar will need careful translation from pest syntax
