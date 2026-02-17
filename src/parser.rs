@@ -267,6 +267,15 @@ fn process_statement_into_subgraph(pair: Pair<Rule>, sg: &mut Subgraph) {
         None => return,
     };
     match inner.as_rule() {
+        Rule::desc_stmt => {
+            let val_pair = inner.into_inner().next().unwrap(); // desc_value
+            let text = match val_pair.into_inner().next() {
+                Some(p) if p.as_rule() == Rule::quoted_string => parse_quoted_string(p),
+                Some(p) => p.as_str().trim().to_string(),
+                None => String::new(),
+            };
+            sg.description = Some(text);
+        }
         Rule::node_stmt => {
             let (node, _) = parse_node_stmt(inner);
             if !sg.nodes.iter().any(|n| n.id == node.id) {

@@ -889,6 +889,8 @@ pub struct CompoundInfo {
     pub member_widths: Vec<usize>,
     pub member_heights: Vec<usize>,
     pub max_member_height: usize,
+    /// Optional description text shown below members in the subgraph box.
+    pub description: Option<String>,
 }
 
 /// Collapse subgraphs into compound nodes for layout.
@@ -922,6 +924,8 @@ fn collapse_subgraphs(gir: &GraphIR, padding: usize) -> (GraphIR, Vec<CompoundIn
 
         let max_member_height = member_heights.iter().copied().max().unwrap_or(NODE_HEIGHT);
 
+        let description = gir.subgraph_descriptions.get(sg_name).cloned();
+
         compounds.push(CompoundInfo {
             sg_name: sg_name.clone(),
             compound_id,
@@ -929,6 +933,7 @@ fn collapse_subgraphs(gir: &GraphIR, padding: usize) -> (GraphIR, Vec<CompoundIn
             member_widths,
             member_heights,
             max_member_height,
+            description,
         });
     }
 
@@ -1015,6 +1020,7 @@ fn collapse_subgraphs(gir: &GraphIR, padding: usize) -> (GraphIR, Vec<CompoundIn
         node_index: new_node_index,
         direction: gir.direction.clone(),
         subgraph_members: Vec::new(),
+        subgraph_descriptions: HashMap::new(),
     };
 
     (collapsed, compounds)
@@ -1032,14 +1038,18 @@ fn compute_compound_dimensions(compounds: &[CompoundInfo], padding: usize) -> Ha
         };
         let content_w = total_member_w + gaps;
         let title_w = ci.sg_name.len() + 4;
-        let inner_w = content_w.max(title_w);
+        let desc_w = ci.description.as_ref().map(|d| d.len() + 4).unwrap_or(0);
+        let inner_w = content_w.max(title_w).max(desc_w);
         let width = 2 + 2 * SG_PAD_X + inner_w;
 
-        // height = top border + title row + max member height + bottom border
+        // Description adds one row per line of text.
+        let desc_rows = ci.description.as_ref().map(|_| 1).unwrap_or(0);
+
+        // height = top border + title row + member height + desc rows + bottom border
         let height = if ci.member_ids.is_empty() {
-            3 // border + title + border
+            3 + desc_rows // border + title + desc + border
         } else {
-            2 + 1 + ci.max_member_height // borders + title + members
+            2 + 1 + ci.max_member_height + desc_rows // borders + title + members + desc
         };
 
         let _ = padding; // padding already factored into member widths
@@ -1103,13 +1113,10 @@ pub fn full_layout(gir: &GraphIR) -> (Vec<LayoutNode>, Vec<RoutedEdge>) {
 /// Like `full_layout` but allows the caller to control the node padding
 /// (number of spaces inside the node border on each side of the label).
 pub fn full_layout_with_padding(gir: &GraphIR, padding: usize) -> (Vec<LayoutNode>, Vec<RoutedEdge>) {
-    let has_subgraph_members = gir
-        .subgraph_members
-        .iter()
-        .any(|(_, members)| !members.is_empty());
+    let has_subgraphs = !gir.subgraph_members.is_empty();
 
-    if !has_subgraph_members {
-        // No subgraphs with members — use original pipeline
+    if !has_subgraphs {
+        // No subgraphs — use original pipeline
         let la = LayerAssignment::assign(gir);
         let (dag, reversed_edges) = remove_cycles(&gir.digraph);
         let aug = insert_dummy_nodes(&dag, &la);

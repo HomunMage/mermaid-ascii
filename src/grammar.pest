@@ -13,11 +13,17 @@ file = { SOI ~ statement* ~ EOI }
 
 statement = {
     direction_decl
+    | desc_stmt
     | subgraph_block
     | edge_stmt
     | node_stmt
     | blank_line
 }
+
+// desc: "text" — description text inside a subgraph
+desc_stmt = { "desc" ~ ":" ~ desc_value ~ NEWLINE }
+desc_value = { quoted_string | unquoted_desc_value }
+unquoted_desc_value = @{ (!NEWLINE ~ ANY)+ }
 
 // A blank line (or comment-only line) separates statements
 blank_line = _{ NEWLINE }

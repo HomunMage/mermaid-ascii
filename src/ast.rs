@@ -101,6 +101,8 @@ pub struct Subgraph {
     pub edges: Vec<Edge>,
     /// Nested subgraphs (the grammar allows nesting via `statement*`).
     pub subgraphs: Vec<Subgraph>,
+    /// Optional description text shown inside the subgraph box.
+    pub description: Option<String>,
 }
 
 impl Subgraph {
@@ -110,6 +112,7 @@ impl Subgraph {
             nodes: Vec::new(),
             edges: Vec::new(),
             subgraphs: Vec::new(),
+            description: None,
         }
     }
 }

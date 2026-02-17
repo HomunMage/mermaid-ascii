@@ -107,8 +107,8 @@ fn main() {
     // Build graph IR.
     let gir = graph::GraphIR::from_ast(&ast_graph);
 
-    if gir.node_count() == 0 {
-        // Empty graph — output nothing gracefully.
+    if gir.node_count() == 0 && gir.subgraph_members.is_empty() {
+        // Empty graph with no subgraphs — output nothing gracefully.
         if let Some(ref out_path) = cli.output {
             fs::write(out_path, "").unwrap_or_else(|e| {
                 eprintln!("error: cannot write '{}': {}", out_path, e);

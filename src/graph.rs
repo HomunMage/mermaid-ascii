@@ -46,6 +46,8 @@ pub struct GraphIR {
     pub direction: ast::Direction,
     /// Subgraph membership: subgraph name → list of node ids.
     pub subgraph_members: Vec<(String, Vec<String>)>,
+    /// Subgraph descriptions: subgraph name → description text.
+    pub subgraph_descriptions: HashMap<String, String>,
 }
 
 impl GraphIR {
@@ -106,11 +108,20 @@ impl GraphIR {
             collect_subgraph_edges(sg, &mut digraph, &mut node_index);
         }
 
+        // Collect subgraph descriptions.
+        let mut subgraph_descriptions: HashMap<String, String> = HashMap::new();
+        for sg in &ast_graph.subgraphs {
+            if let Some(desc) = &sg.description {
+                subgraph_descriptions.insert(sg.name.clone(), desc.clone());
+            }
+        }
+
         GraphIR {
             digraph,
             node_index,
             direction: ast_graph.direction.clone(),
             subgraph_members,
+            subgraph_descriptions,
         }
     }
 

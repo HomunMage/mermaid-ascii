@@ -446,7 +446,7 @@ fn paint_node(canvas: &mut Canvas, ln: &LayoutNode, shape: &NodeShape, label: &s
 ///   │ └─────┘ └─────┘ └─────┘ └─────────┘ │
 ///   └───────────────────────────────────────┘
 /// ```
-fn paint_compound_node(canvas: &mut Canvas, ln: &LayoutNode, sg_name: &str) {
+fn paint_compound_node(canvas: &mut Canvas, ln: &LayoutNode, sg_name: &str, description: Option<&str>) {
     let bc = BoxChars::for_charset(canvas.charset);
 
     // Draw outer border box.
@@ -459,6 +459,14 @@ fn paint_compound_node(canvas: &mut Canvas, ln: &LayoutNode, sg_name: &str) {
     let title_col = ln.x + 1 + title_pad;
     let title_row = ln.y + 1;
     canvas.write_str(title_col, title_row, sg_name);
+
+    // Write description text on the row before the bottom border.
+    if let Some(desc) = description {
+        let desc_row = ln.y + ln.height - 2; // one row above bottom border
+        let desc_pad = inner_w.saturating_sub(desc.len()) / 2;
+        let desc_col = ln.x + 1 + desc_pad;
+        canvas.write_str(desc_col, desc_row, desc);
+    }
 }
 
 /// Paint subgraph borders for non-compound subgraphs (legacy fallback).
@@ -701,7 +709,8 @@ pub fn render(
         // New compound node approach: draw compound nodes as subgraph boxes.
         for ln in &compound_nodes {
             let sg_name = &ln.id[COMPOUND_PREFIX.len()..];
-            paint_compound_node(&mut canvas, ln, sg_name);
+            let desc = gir.subgraph_descriptions.get(sg_name).map(|s| s.as_str());
+            paint_compound_node(&mut canvas, ln, sg_name, desc);
         }
     } else {
         // Legacy: compute borders from member bounding boxes.
