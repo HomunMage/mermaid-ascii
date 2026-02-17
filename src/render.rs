@@ -536,8 +536,8 @@ fn paint_subgraph_borders(
 fn line_chars_for(edge_type: &EdgeType, cs: CharSet) -> (char, char) {
     let bc = BoxChars::for_charset(cs);
     match edge_type {
-        EdgeType::ThickArrow | EdgeType::DoubleLine => ('═', '║'),
-        EdgeType::DottedArrow => ('╌', '╎'),
+        EdgeType::ThickArrow | EdgeType::ThickLine | EdgeType::BidirThick => ('═', '║'),
+        EdgeType::DottedArrow | EdgeType::DottedLine | EdgeType::BidirDotted => ('╌', '╎'),
         _ => (bc.horizontal, bc.vertical),
     }
 }
@@ -568,8 +568,13 @@ fn paint_edge(canvas: &mut Canvas, re: &RoutedEdge, edge_type: &EdgeType) {
     }
 
     // Arrowhead placement depends on edge type.
-    let arrow_at_end = !matches!(edge_type, EdgeType::Line | EdgeType::BackArrow | EdgeType::DoubleLine);
-    let arrow_at_start = matches!(edge_type, EdgeType::BidirArrow | EdgeType::BackArrow);
+    let arrow_at_end = matches!(edge_type,
+        EdgeType::Arrow | EdgeType::DottedArrow | EdgeType::ThickArrow |
+        EdgeType::BidirArrow | EdgeType::BidirDotted | EdgeType::BidirThick
+    );
+    let arrow_at_start = matches!(edge_type,
+        EdgeType::BidirArrow | EdgeType::BidirDotted | EdgeType::BidirThick
+    );
 
     if arrow_at_end {
         let last = re.waypoints.last().unwrap();

@@ -1,29 +1,32 @@
-// text-graph DSL PEG Grammar (pest)
-// Compatible with graph-easy syntax, Mermaid-inspired extensions
+// text-graph PEG Grammar (pest)
+// Mermaid flowchart syntax — aligned with mermaid-ascii / beautiful-mermaid
 //
 // Key pest behaviors:
 //   - WHITESPACE (if defined as silent _) is auto-inserted between tokens
-//   - COMMENT (if defined as silent _) is auto-inserted between tokens
 //   - Ordered choice: | tries left first; longer alternatives must come first
 //   - Atomic rules (@) consume no whitespace internally
 
 // ─── Top-level ─────────────────────────────────────────────────────────────
 
-file = { SOI ~ statement* ~ EOI }
+file = { SOI ~ header? ~ statement* ~ EOI }
+
+// ─── Header ────────────────────────────────────────────────────────────────
+// "graph TD" or "flowchart LR"
+
+header = { graph_keyword ~ direction_value ~ NEWLINE }
+
+graph_keyword = _{ "flowchart" | "graph" }
+
+direction_value = { "TD" | "TB" | "LR" | "RL" | "BT" }
+
+// ─── Statements ────────────────────────────────────────────────────────────
 
 statement = {
-    direction_decl
-    | desc_stmt
-    | subgraph_block
+    subgraph_block
     | edge_stmt
     | node_stmt
     | blank_line
 }
-
-// desc: "text" — description text inside a subgraph
-desc_stmt = { "desc" ~ ":" ~ desc_value ~ NEWLINE }
-desc_value = { quoted_string | unquoted_desc_value }
-unquoted_desc_value = @{ (!NEWLINE ~ ANY)+ }
 
 // A blank line (or comment-only line) separates statements
 blank_line = _{ NEWLINE }
@@ -34,108 +37,105 @@ blank_line = _{ NEWLINE }
 // Newlines are NOT implicit whitespace so they can delimit statements.
 WHITESPACE = _{ " " | "\t" }
 
-// Line comments; consumed as whitespace between tokens
-COMMENT = _{ ("#" | "//") ~ (!NEWLINE ~ ANY)* }
+// Mermaid uses %% for line comments
+COMMENT = _{ "%%" ~ (!NEWLINE ~ ANY)* }
 
 // Explicit newline token (silent — used structurally but not captured)
 NEWLINE = _{ "\r\n" | "\n" | "\r" }
 
-// ─── Direction Declaration ───────────────────────────────────────────────────
+// ─── Node Reference ────────────────────────────────────────────────────────
+// Mermaid: id[label], id(label), id{label}, id((label)), or bare id
 
-direction_decl = { "direction" ~ ":" ~ direction_value ~ NEWLINE }
-
-direction_value = { "LR" | "RL" | "TD" | "BT" }
-
-// ─── Node Reference (shape-typed) ───────────────────────────────────────────
-
-// Ordered: circle_node before rounded_node to match "((" before "("
 node_ref = {
-    circle_node
-    | rounded_node
-    | diamond_node
-    | rect_node
+    node_id ~ node_shape?
 }
 
-// [Label]  — Rectangle (default shape)
-rect_node = { "[" ~ node_label ~ "]" }
+// Node identifier: alphanumeric + underscores + hyphens
+node_id = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | "-")* }
 
-// (Label)  — Rounded rectangle
-rounded_node = { "(" ~ node_label ~ ")" }
+// Shape brackets with label inside
+// Ordered: longer delimiters first to avoid partial matches
+node_shape = {
+    circle_shape     // ((label))
+    | rounded_shape  // (label)
+    | diamond_shape  // {label}
+    | rect_shape     // [label]
+}
 
-// {Label}  — Diamond / decision
-diamond_node = { "{" ~ node_label ~ "}" }
-
-// ((Label)) — Circle
-circle_node = { "((" ~ node_label ~ "))" }
+rect_shape    = { "[" ~ node_label ~ "]" }
+rounded_shape = { "(" ~ !"(" ~ node_label ~ ")" }
+diamond_shape = { "{" ~ node_label ~ "}" }
+circle_shape  = { "((" ~ node_label ~ "))" }
 
 // Node label inside delimiters: quoted string or bare text
 node_label = { quoted_string | unquoted_label }
 
 // Bare label: any chars except shape-closing delimiters and newline
-// Covers all shapes; the surrounding rule provides the correct stop char
-unquoted_label = @{ (!( "]" | "))" | ")" | "}" | NEWLINE) ~ ANY)+ }
+unquoted_label = @{ (!("]" | "))" | ")" | "}" | NEWLINE) ~ ANY)+ }
 
-// ─── Node Statement (standalone node with optional attributes) ──────────────
+// ─── Node Statement (standalone node) ────────────────────────────────────
 
-node_stmt = { node_ref ~ attr_block? ~ NEWLINE }
+node_stmt = { node_ref ~ NEWLINE }
 
 // ─── Edge Statement ─────────────────────────────────────────────────────────
 
 edge_stmt = { node_ref ~ edge_chain ~ NEWLINE }
 
-// [A] --> [B] --> [C]  (chain of one or more edges)
-// Trailing attr_block applies to the whole statement (last edge)
-edge_chain = { (edge_connector ~ node_ref)+ ~ attr_block? }
+// A --> B --> C  (chain of one or more edges)
+// Each segment: connector + optional |label| + target node
+edge_chain = { (edge_connector ~ edge_label? ~ node_ref)+ }
 
-// Ordered: longer alternatives first to avoid partial matches
+// |label text|  — pipe-delimited edge label (Mermaid standard)
+edge_label = { "|" ~ label_text ~ "|" }
+
+label_text = @{ (!"|" ~ !NEWLINE ~ ANY)+ }
+
+// ─── Edge Connectors ────────────────────────────────────────────────────────
+// Ordered: longer/more specific first to avoid partial matches
+
 edge_connector = {
-    bidir_arrow    // <--> or <->  (before back_arrow)
-    | back_arrow   // <-- or <-
-    | dotted_arrow // .--> or .->  (before thick, arrow)
-    | thick_arrow  // ==>  (before double_line ===)
-    | double_line  // ===
-    | arrow        // --> or ->    (before line --)
-    | line         // --
+    bidir_dotted   // <-.->
+    | bidir_thick  // <==>
+    | bidir_arrow  // <-->
+    | dotted_arrow // -.->
+    | thick_arrow  // ==>
+    | arrow        // -->
+    | dotted_line  // -.-
+    | thick_line   // ===
+    | line         // ---
 }
 
-arrow       = @{ "-->" | "->" }
-line        = @{ "--" }
-back_arrow  = @{ "<--" | "<-" }
-bidir_arrow = @{ "<-->" | "<->" }
-thick_arrow = @{ "==>" | "=>" }
-double_line = @{ "===" }
-dotted_arrow = @{ ".-->" | ".->" | "..>" }
-
-// ─── Attribute Block ─────────────────────────────────────────────────────────
-
-// { key: value, key: "quoted value", ... }
-attr_block = { "{" ~ attr_list? ~ "}" }
-
-attr_list = { attr ~ ("," ~ attr)* ~ ","? }
-
-attr = { attr_key ~ ":" ~ attr_value }
-
-attr_key = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" | "-")* }
-
-attr_value = { quoted_string | unquoted_attr_value }
-
-// Unquoted attr value: stops at comma, closing brace, or newline
-unquoted_attr_value = @{ (!(  "," | "}" | NEWLINE) ~ ANY)+ }
+arrow        = @{ "-->" }
+line         = @{ "---" }
+dotted_arrow = @{ "-.->" }
+dotted_line  = @{ "-.-" }
+thick_arrow  = @{ "==>" }
+thick_line   = @{ "===" }
+bidir_arrow  = @{ "<-->" }
+bidir_dotted = @{ "<-.->" }
+bidir_thick  = @{ "<==>" }
 
 // ─── Subgraph ───────────────────────────────────────────────────────────────
+// Mermaid: subgraph label ... end
 
 subgraph_block = {
-    "subgraph" ~ subgraph_name ~ "{"
-    ~ NEWLINE?
-    ~ statement*
-    ~ "}"
+    "subgraph" ~ subgraph_label ~ NEWLINE
+    ~ subgraph_direction?
+    ~ (!end_keyword ~ statement)*
+    ~ end_keyword
     ~ NEWLINE?
 }
 
-subgraph_name = { quoted_string | bare_name }
+// "end" on its own line (not followed by alphanumeric, meaning it's a keyword)
+end_keyword = _{ "end" ~ !(ASCII_ALPHANUMERIC | "_" | "-") }
 
-// Bare subgraph name: stops at whitespace, '{', '}', newline
-bare_name = @{ (!(WHITESPACE | "{" | "}" | NEWLINE) ~ ANY)+ }
+// Optional direction override inside subgraph: "direction LR"
+subgraph_direction = { "direction" ~ direction_value ~ NEWLINE }
+
+// Subgraph label: quoted string or bare text until newline
+subgraph_label = { quoted_string | bare_subgraph_label }
+
+bare_subgraph_label = @{ (!(NEWLINE) ~ ANY)+ }
 
 // ─── String Literals ─────────────────────────────────────────────────────────
 

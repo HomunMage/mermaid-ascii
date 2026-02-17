@@ -1,7 +1,7 @@
-/// AST data structures for the text-graph DSL.
+/// AST data structures for Mermaid flowchart syntax.
 ///
 /// These types represent the parsed form of the input DSL.
-/// They map closely to the grammar rules in out/phase0/grammar.pest.
+/// Aligned with mermaid-ascii / beautiful-mermaid conventions.
 
 // ─── Direction ───────────────────────────────────────────────────────────────
 
@@ -19,23 +19,25 @@ pub enum Direction {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum NodeShape {
     #[default]
-    Rectangle,  // [Label]
-    Rounded,    // (Label)
-    Diamond,    // {Label}
-    Circle,     // ((Label))
+    Rectangle,  // id[Label]
+    Rounded,    // id(Label)
+    Diamond,    // id{Label}
+    Circle,     // id((Label))
 }
 
 // ─── Edge Types ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EdgeType {
-    Arrow,       // --> or ->
-    Line,        // --
-    BackArrow,   // <-- or <-
-    BidirArrow,  // <--> or <->
-    ThickArrow,  // ==> or =>
-    DoubleLine,  // ===
-    DottedArrow, // .--> or .->
+    Arrow,       // -->
+    Line,        // ---
+    DottedArrow, // -.->
+    DottedLine,  // -.-
+    ThickArrow,  // ==>
+    ThickLine,   // ===
+    BidirArrow,  // <-->
+    BidirDotted, // <-.->
+    BidirThick,  // <==>
 }
 
 // ─── Attribute ───────────────────────────────────────────────────────────────
@@ -50,19 +52,24 @@ pub struct Attr {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
-    /// Unique identifier derived from the label (or assigned label).
+    /// Mermaid identifier (e.g. "A", "Start", "my-node").
     pub id: String,
-    /// Display label (may be quoted or bare text from the DSL).
+    /// Display label (e.g. "Hello World"). Defaults to id if no shape bracket.
     pub label: String,
     pub shape: NodeShape,
     pub attrs: Vec<Attr>,
 }
 
 impl Node {
-    pub fn new(label: impl Into<String>, shape: NodeShape) -> Self {
-        let label = label.into();
-        let id = label.clone();
-        Self { id, label, shape, attrs: Vec::new() }
+    pub fn new(id: impl Into<String>, label: impl Into<String>, shape: NodeShape) -> Self {
+        Self { id: id.into(), label: label.into(), shape, attrs: Vec::new() }
+    }
+
+    /// Create a bare node (id = label, default rectangle shape).
+    pub fn bare(id: impl Into<String>) -> Self {
+        let id = id.into();
+        let label = id.clone();
+        Self { id, label, shape: NodeShape::Rectangle, attrs: Vec::new() }
     }
 }
 
@@ -75,7 +82,7 @@ pub struct Edge {
     /// ID of the target node.
     pub to: String,
     pub edge_type: EdgeType,
-    /// Optional inline label on the edge.
+    /// Optional inline label on the edge (from |text| syntax).
     pub label: Option<String>,
     pub attrs: Vec<Attr>,
 }
@@ -99,10 +106,12 @@ pub struct Subgraph {
     pub name: String,
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
-    /// Nested subgraphs (the grammar allows nesting via `statement*`).
+    /// Nested subgraphs.
     pub subgraphs: Vec<Subgraph>,
     /// Optional description text shown inside the subgraph box.
     pub description: Option<String>,
+    /// Optional direction override within this subgraph.
+    pub direction: Option<Direction>,
 }
 
 impl Subgraph {
@@ -113,6 +122,7 @@ impl Subgraph {
             edges: Vec::new(),
             subgraphs: Vec::new(),
             description: None,
+            direction: None,
         }
     }
 }
