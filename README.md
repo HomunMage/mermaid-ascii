@@ -1,9 +1,10 @@
 # text-graph
 
-A Rust CLI that renders directed graphs as ASCII/Unicode art from a simple DSL.
+A Rust CLI that renders Mermaid flowchart syntax as ASCII/Unicode art.
 
 ```
-echo '[A] --> [B] --> [C]' | text-graph
+echo 'graph TD
+    A --> B --> C' | text-graph
 
 ┌───┐
 │ A │
@@ -46,19 +47,21 @@ Options:
 Read from file:
 
 ```sh
-text-graph examples/diamond.txt
+text-graph examples/flowchart.mm.md
 ```
 
 Pipe from stdin:
 
 ```sh
-echo '[A] --> [B]' | text-graph
+echo 'graph LR
+    A --> B' | text-graph
 ```
 
 ASCII mode:
 
 ```
-echo '[A] --> [B] --> [C]' | text-graph --ascii
+echo 'graph TD
+    A --> B --> C' | text-graph --ascii
 
 +---+
 | A |
@@ -77,137 +80,110 @@ echo '[A] --> [B] --> [C]' | text-graph --ascii
 +---+
 ```
 
-## DSL Syntax
+## Mermaid Syntax
+
+Standard [Mermaid flowchart](https://mermaid.js.org/syntax/flowchart.html) syntax. Designed to align with [mermaid-ascii](https://github.com/AlexanderGrooff/mermaid-ascii) and [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid).
+
+### Header
+
+```
+graph TD        %% top-down (default)
+flowchart LR    %% left-to-right
+graph BT        %% bottom-to-top
+graph RL        %% right-to-left
+```
+
+### Nodes
+
+```
+A               %% bare node (rectangle, label = "A")
+A[Rectangle]    %% rectangle with label
+B(Rounded)      %% rounded rectangle
+C{Diamond}      %% diamond / decision
+D((Circle))     %% circle
+```
 
 ### Edges
 
 ```
-[A] --> [B]       # directed arrow
-[A] -- [B]        # undirected line
-[A] <-- [B]       # back arrow (arrow points to A)
-[A] <--> [B]      # bidirectional
-[A] ==> [B]       # thick arrow
-[A] ..> [B]       # dotted arrow
-[A] --> [B] --> [C]   # chained edges
-```
-
-### Edge labels
-
-```
-[Login] --> [Dashboard] { label: "success" }
-[Login] --> [Error] { label: "failed" }
-```
-
-### Node shapes
-
-```
-[Rectangle]       # square brackets
-(Rounded)         # parentheses
-{Diamond}         # curly braces
-((Circle))        # double parens
-```
-
-### Multi-line labels
-
-```
-["Line 1\nLine 2"]   # use \n for newlines
-```
-
-### Direction
-
-```
-direction: TD     # top-down (default)
-direction: LR     # left-to-right
-direction: BT     # bottom-to-top
-direction: RL     # right-to-left
+A --> B           %% solid arrow
+A --- B           %% solid line (no arrow)
+A -.-> B          %% dotted arrow
+A -.- B           %% dotted line
+A ==> B           %% thick arrow
+A === B           %% thick line
+A <--> B          %% bidirectional arrow
+A -->|label| B    %% edge with label
+A --> B --> C     %% chained edges
 ```
 
 ### Subgraphs
 
 ```
-subgraph "Backend" {
-  [API] --> [DB]
-}
+subgraph Backend
+    API --> DB
+end
+```
 
-subgraph "Empty Group" {
-  desc: "description text shown inside"
-}
+### Multi-line labels
+
+```
+A["Line 1\nLine 2"]
 ```
 
 ### Comments
 
 ```
-# This is a comment
-// This is also a comment
+%% This is a comment
+A --> B  %% inline comment
 ```
 
 ## Examples
 
-### Simple pipeline
+### Flowchart with shapes and labels
 
 ```
 cat <<'EOF' | text-graph
-[Start] --> [Build]
-[Build] --> [Test]
-[Test] --> [Deploy]
-[Build] --> [Lint]
-[Lint] --> [Deploy]
+graph TD
+    Start[Start] --> Decision{Decision}
+    Decision -->|yes| ProcessA[Process A]
+    Decision -->|no| ProcessB[Process B]
+    ProcessA --> End[End]
+    ProcessB --> End
 EOF
 
-      ┌───────┐
-      │ Start │
-      └───┼───┘
-          │
-          │
-          │
-      ┌───▼───┐
-      │ Build │
-      └───┼───┘
-          │
-    ┼─────┼─────┼
-    │           │
-┌───▼──┐    ┌───▼──┐
-│ Lint │    │ Test │
-└───┼──┘    └───┼──┘
-    │           │
-    ┼─────┼─────┼
-          │
-     ┌────▼───┐
-     │ Deploy │
-     └────────┘
+          ┌───────┐
+          │ Start │
+          └───┼───┘
+              │
+              │
+              │
+        /─────▼────\
+        │ Decision │
+        \─────┼────/
+      yes     │        no
+      ┼───────┼────────┼
+      │                │
+┌─────▼─────┐    ┌─────▼─────┐
+│ Process A │    │ Process B │
+└─────┼─────┘    └─────┼─────┘
+      │                │
+      ┼───────┼────────┼
+              │
+           ┌──▼──┐
+           │ End │
+           └─────┘
 ```
 
-### Architecture diagram with subgraphs
+### Left-to-right pipeline
 
 ```
-text-graph examples/sysarch.txt
-
-     ┌────────────────────────────────────────────────────────┐
-     │                   Svelte + Tailwind                    │
-     │ ┌───────────┐ ┌──────────┐ ┌────────────┐ ┌──────────┐ │
-     │ │ Grid View │ │ Timeline │ │ Board View │ │ LLM Chat │ │
-     │ └───────────┘ └──────────┘ └────────────┘ └──────────┘ │
-     └────────────────────────────┼───────────────────────────┘
-                                  HTTP
-                                  │
-                                  │
-                     ┌────────────▼───────────┐
-                     │   FastAPI + SQLModel   │
-                     └────────────┼───────────┘
-                                  │
-                ┼─────────────────┼──────────────────┼
-                │                 │                  │
-         ┌──────▼─────┐    ┌──────▼─────┐    ┌───────▼──────┐
-         │ PostgreSQL │    │ Claude API │    │    Minio     │
-         └──────▲─────┘    │  tool_use  │    │ (blob store) │
-                │          └────────────┘    └──────────────┘
-                │                 writes
-                ┼─────────────────┼
-                                  │
-┌─────────────────────────────────┼─────────────────────────────────┐
-│                   Git Sync Worker (background)                    │
-│   git fetch -> parse branches/tags -> openapi plugin -> sync DB   │
-└───────────────────────────────────────────────────────────────────┘
+cat <<'EOF' | text-graph
+flowchart LR
+    Source --> Build --> Test --> Deploy
+    Build --> Lint
+    Lint --> Test
+EOF
 ```
 
 Generate all example outputs:
@@ -218,7 +194,7 @@ bash examples/gen.sh
 
 ## Architecture
 
-Pipeline: **DSL text** → **pest parser** → **AST** → **petgraph IR** → **Sugiyama layout** → **edge routing** → **canvas render** → **text output**
+Pipeline: **Mermaid text** → **pest parser** → **AST** → **petgraph IR** → **Sugiyama layout** → **edge routing** → **canvas render** → **text output**
 
 - Parser: [pest](https://pest.rs/) PEG grammar
 - Graph: [petgraph](https://docs.rs/petgraph/) directed graph
