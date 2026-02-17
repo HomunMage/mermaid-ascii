@@ -12,6 +12,7 @@ use petgraph::graph::{DiGraph, EdgeIndex, NodeIndex};
 use petgraph::visit::EdgeRef;
 use std::collections::{HashMap, HashSet};
 
+use crate::ast;
 use crate::graph::{EdgeData, GraphIR, NodeData};
 
 // ─── Cycle Removal (Greedy-FAS) ───────────────────────────────────────────────
@@ -666,7 +667,7 @@ const NODE_HEIGHT: usize = 3;  // top-border + text-row + bottom-border
 /// Layout is top-down (TD): x = column, y = row. The renderer transposes for LR.
 /// Dummy nodes are given width 1 to minimise horizontal space consumption.
 pub fn assign_coordinates(ordering: &[Vec<String>], aug: &AugmentedGraph) -> Vec<LayoutNode> {
-    assign_coordinates_padded(ordering, aug, NODE_PADDING)
+    assign_coordinates_padded(ordering, aug, NODE_PADDING, &HashMap::new())
 }
 
 // ─── Edge Routing (Orthogonal) ────────────────────────────────────────────────
@@ -870,6 +871,216 @@ fn compute_orthogonal_waypoints(
     waypoints
 }
 
+// ─── Compound Node (Subgraph Collapse/Expand) ────────────────────────────────
+
+/// Prefix for compound node ids (subgraphs collapsed into single nodes).
+pub const COMPOUND_PREFIX: &str = "__sg_";
+
+/// Gap between member nodes inside a subgraph.
+const SG_INNER_GAP: usize = 1;
+/// Padding between subgraph border and member nodes (left/right).
+const SG_PAD_X: usize = 1;
+
+/// Information about a collapsed subgraph (compound node).
+pub struct CompoundInfo {
+    pub sg_name: String,
+    pub compound_id: String,
+    pub member_ids: Vec<String>,
+    pub member_widths: Vec<usize>,
+    pub member_heights: Vec<usize>,
+    pub max_member_height: usize,
+}
+
+/// Collapse subgraphs into compound nodes for layout.
+///
+/// For each subgraph with members, replaces the member nodes with a single
+/// compound node sized to contain all members horizontally. Cross-boundary
+/// edges are redirected to the compound node. Internal edges are dropped.
+fn collapse_subgraphs(gir: &GraphIR, padding: usize) -> (GraphIR, Vec<CompoundInfo>) {
+    // Map member_id → subgraph name
+    let mut member_to_sg: HashMap<&str, &str> = HashMap::new();
+    let mut compounds: Vec<CompoundInfo> = Vec::new();
+
+    for (sg_name, members) in &gir.subgraph_members {
+        let compound_id = format!("{}{}", COMPOUND_PREFIX, sg_name);
+
+        let mut member_widths = Vec::new();
+        let mut member_heights = Vec::new();
+
+        for mid in members {
+            if let Some(&ni) = gir.node_index.get(mid) {
+                let data = &gir.digraph[ni];
+                let (max_line_w, line_count) = label_dimensions(&data.label);
+                member_widths.push(max_line_w + 2 + 2 * padding);
+                member_heights.push(2 + line_count);
+            } else {
+                member_widths.push(3 + 2 * padding);
+                member_heights.push(NODE_HEIGHT);
+            }
+            member_to_sg.insert(mid.as_str(), sg_name.as_str());
+        }
+
+        let max_member_height = member_heights.iter().copied().max().unwrap_or(NODE_HEIGHT);
+
+        compounds.push(CompoundInfo {
+            sg_name: sg_name.clone(),
+            compound_id,
+            member_ids: members.clone(),
+            member_widths,
+            member_heights,
+            max_member_height,
+        });
+    }
+
+    // Build sg_name → compound_id lookup
+    let sg_to_compound: HashMap<&str, &str> = compounds
+        .iter()
+        .map(|c| (c.sg_name.as_str(), c.compound_id.as_str()))
+        .collect();
+
+    // Build the collapsed graph
+    let mut new_digraph: DiGraph<NodeData, EdgeData> = DiGraph::new();
+    let mut new_node_index: HashMap<String, NodeIndex> = HashMap::new();
+
+    // Add non-member nodes (preserve original order)
+    let mut sorted_nodes: Vec<NodeIndex> = gir.digraph.node_indices().collect();
+    sorted_nodes.sort();
+    for &ni in &sorted_nodes {
+        let data = &gir.digraph[ni];
+        if !member_to_sg.contains_key(data.id.as_str()) {
+            let idx = new_digraph.add_node(data.clone());
+            new_node_index.insert(data.id.clone(), idx);
+        }
+    }
+
+    // Add compound nodes
+    for ci in &compounds {
+        let compound_data = NodeData {
+            id: ci.compound_id.clone(),
+            label: ci.sg_name.clone(),
+            shape: ast::NodeShape::Rectangle,
+            attrs: Vec::new(),
+            subgraph: None,
+        };
+        let idx = new_digraph.add_node(compound_data);
+        new_node_index.insert(ci.compound_id.clone(), idx);
+    }
+
+    // Add edges, redirecting member endpoints to compound nodes
+    let mut added_edges: HashSet<(String, String)> = HashSet::new();
+    for edge in gir.digraph.edge_references() {
+        let src_id = &gir.digraph[edge.source()].id;
+        let tgt_id = &gir.digraph[edge.target()].id;
+
+        let src_sg = member_to_sg.get(src_id.as_str());
+        let tgt_sg = member_to_sg.get(tgt_id.as_str());
+
+        // Both in same subgraph → internal edge, skip
+        if let (Some(s1), Some(s2)) = (src_sg, tgt_sg) {
+            if s1 == s2 {
+                continue;
+            }
+        }
+
+        let actual_src = match src_sg {
+            Some(sg) => sg_to_compound[sg].to_string(),
+            None => src_id.clone(),
+        };
+        let actual_tgt = match tgt_sg {
+            Some(sg) => sg_to_compound[sg].to_string(),
+            None => tgt_id.clone(),
+        };
+
+        // Avoid duplicate edges between same pair
+        let key = (actual_src.clone(), actual_tgt.clone());
+        if added_edges.contains(&key) {
+            continue;
+        }
+        added_edges.insert(key);
+
+        let from_idx = new_node_index[&actual_src];
+        let to_idx = new_node_index[&actual_tgt];
+        new_digraph.add_edge(from_idx, to_idx, edge.weight().clone());
+    }
+
+    let collapsed = GraphIR {
+        digraph: new_digraph,
+        node_index: new_node_index,
+        direction: gir.direction.clone(),
+        subgraph_members: Vec::new(),
+    };
+
+    (collapsed, compounds)
+}
+
+/// Compute dimension overrides for compound nodes: id → (width, height).
+fn compute_compound_dimensions(compounds: &[CompoundInfo], padding: usize) -> HashMap<String, (usize, usize)> {
+    let mut overrides = HashMap::new();
+    for ci in compounds {
+        let total_member_w: usize = ci.member_widths.iter().sum();
+        let gaps = if ci.member_ids.len() > 1 {
+            (ci.member_ids.len() - 1) * SG_INNER_GAP
+        } else {
+            0
+        };
+        let content_w = total_member_w + gaps;
+        let title_w = ci.sg_name.len() + 4;
+        let inner_w = content_w.max(title_w);
+        let width = 2 + 2 * SG_PAD_X + inner_w;
+
+        // height = top border + title row + max member height + bottom border
+        let height = if ci.member_ids.is_empty() {
+            3 // border + title + border
+        } else {
+            2 + 1 + ci.max_member_height // borders + title + members
+        };
+
+        let _ = padding; // padding already factored into member widths
+        overrides.insert(ci.compound_id.clone(), (width, height));
+    }
+    overrides
+}
+
+/// Expand compound nodes by adding member nodes positioned inside them.
+fn expand_compound_nodes(
+    layout_nodes: &[LayoutNode],
+    compounds: &[CompoundInfo],
+) -> Vec<LayoutNode> {
+    let compound_map: HashMap<&str, &CompoundInfo> = compounds
+        .iter()
+        .map(|c| (c.compound_id.as_str(), c))
+        .collect();
+
+    let mut result: Vec<LayoutNode> = Vec::new();
+
+    for ln in layout_nodes {
+        result.push(ln.clone()); // keep compound node (for border rendering)
+
+        if let Some(ci) = compound_map.get(ln.id.as_str()) {
+            // Place member nodes horizontally inside compound
+            let mut member_x = ln.x + 1 + SG_PAD_X; // border + padding
+            let member_y = ln.y + 2; // border + title row
+
+            for (i, mid) in ci.member_ids.iter().enumerate() {
+                result.push(LayoutNode {
+                    id: mid.clone(),
+                    layer: ln.layer,
+                    order: ln.order,
+                    x: member_x,
+                    y: member_y,
+                    width: ci.member_widths[i],
+                    height: ci.member_heights[i],
+                });
+                member_x += ci.member_widths[i] + SG_INNER_GAP;
+            }
+        }
+    }
+
+    result
+}
+
+// ─── Full Layout Pipeline ────────────────────────────────────────────────────
+
 /// Run the full layout pipeline and return positioned nodes + routed edges.
 ///
 /// Steps:
@@ -885,13 +1096,40 @@ pub fn full_layout(gir: &GraphIR) -> (Vec<LayoutNode>, Vec<RoutedEdge>) {
 /// Like `full_layout` but allows the caller to control the node padding
 /// (number of spaces inside the node border on each side of the label).
 pub fn full_layout_with_padding(gir: &GraphIR, padding: usize) -> (Vec<LayoutNode>, Vec<RoutedEdge>) {
-    let la = LayerAssignment::assign(gir);
-    let (dag, reversed_edges) = remove_cycles(&gir.digraph);
+    let has_subgraph_members = gir
+        .subgraph_members
+        .iter()
+        .any(|(_, members)| !members.is_empty());
+
+    if !has_subgraph_members {
+        // No subgraphs with members — use original pipeline
+        let la = LayerAssignment::assign(gir);
+        let (dag, reversed_edges) = remove_cycles(&gir.digraph);
+        let aug = insert_dummy_nodes(&dag, &la);
+        let ordering = minimise_crossings(&aug);
+        let layout_nodes = assign_coordinates_padded(&ordering, &aug, padding, &HashMap::new());
+        let routed_edges = route_edges(gir, &layout_nodes, &aug, &reversed_edges);
+        return (layout_nodes, routed_edges);
+    }
+
+    // Collapse subgraphs into compound nodes
+    let (collapsed, compounds) = collapse_subgraphs(gir, padding);
+    let dim_overrides = compute_compound_dimensions(&compounds, padding);
+
+    // Run Sugiyama on collapsed graph
+    let la = LayerAssignment::assign(&collapsed);
+    let (dag, reversed_edges) = remove_cycles(&collapsed.digraph);
     let aug = insert_dummy_nodes(&dag, &la);
     let ordering = minimise_crossings(&aug);
-    let layout_nodes = assign_coordinates_padded(&ordering, &aug, padding);
-    let routed_edges = route_edges(gir, &layout_nodes, &aug, &reversed_edges);
-    (layout_nodes, routed_edges)
+    let layout_nodes = assign_coordinates_padded(&ordering, &aug, padding, &dim_overrides);
+
+    // Expand compound nodes → add member nodes inside
+    let expanded = expand_compound_nodes(&layout_nodes, &compounds);
+
+    // Route edges using collapsed graph (edges reference compound node ids)
+    let routed_edges = route_edges(&collapsed, &expanded, &aug, &reversed_edges);
+
+    (expanded, routed_edges)
 }
 
 /// Compute (max_line_width, line_count) for a label that may contain newlines.
@@ -905,7 +1143,15 @@ fn label_dimensions(label: &str) -> (usize, usize) {
 }
 
 /// Internal: coordinate assignment with a caller-specified padding value.
-fn assign_coordinates_padded(ordering: &[Vec<String>], aug: &AugmentedGraph, padding: usize) -> Vec<LayoutNode> {
+///
+/// `size_overrides` maps node id → (width, height) for compound nodes or
+/// other nodes whose dimensions can't be computed from the label alone.
+fn assign_coordinates_padded(
+    ordering: &[Vec<String>],
+    aug: &AugmentedGraph,
+    padding: usize,
+    size_overrides: &HashMap<String, (usize, usize)>,
+) -> Vec<LayoutNode> {
     // Build label info map: id -> (max_line_width, line_count)
     let id_to_label_info: HashMap<&str, (usize, usize)> = aug
         .graph
@@ -913,13 +1159,23 @@ fn assign_coordinates_padded(ordering: &[Vec<String>], aug: &AugmentedGraph, pad
         .map(|ni| (aug.graph[ni].id.as_str(), label_dimensions(&aug.graph[ni].label)))
         .collect();
 
+    // Compute (width, height) for each node, respecting overrides.
+    let node_dims = |id: &str| -> (usize, usize) {
+        if let Some(&dims) = size_overrides.get(id) {
+            return dims;
+        }
+        let (max_line_w, line_count) = id_to_label_info.get(id).copied().unwrap_or((0, 1));
+        let is_dummy = max_line_w == 0 && id.starts_with(DUMMY_PREFIX);
+        let width = if is_dummy { 1 } else { max_line_w + 2 + 2 * padding };
+        let height = if is_dummy { NODE_HEIGHT } else { 2 + line_count };
+        (width, height)
+    };
+
     // First pass: compute per-layer max height.
     let mut layer_max_height: Vec<usize> = vec![NODE_HEIGHT; ordering.len()];
     for (layer_idx, layer_nodes) in ordering.iter().enumerate() {
         for id in layer_nodes {
-            let (_, line_count) = id_to_label_info.get(id.as_str()).copied().unwrap_or((0, 1));
-            let is_dummy = id.starts_with(DUMMY_PREFIX);
-            let h = if is_dummy { NODE_HEIGHT } else { 2 + line_count }; // border + lines + border
+            let (_, h) = node_dims(id);
             if h > layer_max_height[layer_idx] {
                 layer_max_height[layer_idx] = h;
             }
@@ -943,14 +1199,7 @@ fn assign_coordinates_padded(ordering: &[Vec<String>], aug: &AugmentedGraph, pad
     for (layer_idx, layer_nodes) in ordering.iter().enumerate() {
         let mut x = 0usize;
         for (order, id) in layer_nodes.iter().enumerate() {
-            let (max_line_w, line_count) = id_to_label_info.get(id.as_str()).copied().unwrap_or((0, 1));
-            let is_dummy = max_line_w == 0 && id.starts_with(DUMMY_PREFIX);
-            let width = if is_dummy {
-                1
-            } else {
-                max_line_w + 2 + 2 * padding // "[" + pad + label + pad + "]"
-            };
-            let height = if is_dummy { NODE_HEIGHT } else { 2 + line_count };
+            let (width, height) = node_dims(id);
             nodes.push(LayoutNode {
                 id: id.clone(),
                 layer: layer_idx,

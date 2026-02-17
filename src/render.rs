@@ -19,7 +19,7 @@
 
 use crate::ast::{EdgeType, NodeShape};
 use crate::graph::GraphIR;
-use crate::layout::{LayoutNode, RoutedEdge, DUMMY_PREFIX};
+use crate::layout::{LayoutNode, RoutedEdge, COMPOUND_PREFIX, DUMMY_PREFIX};
 
 // ─── Geometry Types ───────────────────────────────────────────────────────────
 
@@ -433,12 +433,37 @@ fn paint_node(canvas: &mut Canvas, ln: &LayoutNode, shape: &NodeShape, label: &s
     }
 }
 
-// ─── Subgraph Border Rendering ────────────────────────────────────────────────
+// ─── Compound Node / Subgraph Border Rendering ──────────────────────────────
 
-/// Paint a dashed bounding box around the nodes in each subgraph.
+/// Paint a compound node as a subgraph border box with title inside.
 ///
-/// The border is placed 2 columns / 1 row outside the member nodes' bounding box.
-/// The subgraph name is embedded in the top border row.
+/// Layout:
+/// ```text
+///   ┌───────────────────────────────────────┐
+///   │            Subgraph Name              │
+///   │ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────────┐ │
+///   │ │  A  │ │  B  │ │  C  │ │    D    │ │
+///   │ └─────┘ └─────┘ └─────┘ └─────────┘ │
+///   └───────────────────────────────────────┘
+/// ```
+fn paint_compound_node(canvas: &mut Canvas, ln: &LayoutNode, sg_name: &str) {
+    let bc = BoxChars::for_charset(canvas.charset);
+
+    // Draw outer border box.
+    let rect = Rect::new(ln.x, ln.y, ln.width, ln.height);
+    canvas.draw_box(&rect, &bc);
+
+    // Write subgraph title centered on the row after the top border.
+    let inner_w = ln.width.saturating_sub(2);
+    let title_pad = inner_w.saturating_sub(sg_name.len()) / 2;
+    let title_col = ln.x + 1 + title_pad;
+    let title_row = ln.y + 1;
+    canvas.write_str(title_col, title_row, sg_name);
+}
+
+/// Paint subgraph borders for non-compound subgraphs (legacy fallback).
+///
+/// Used only when subgraphs have members but no compound node layout was used.
 fn paint_subgraph_borders(
     gir: &GraphIR,
     layout_nodes: &[LayoutNode],
@@ -644,13 +669,20 @@ pub fn render(
 
     let cs = if unicode { CharSet::Unicode } else { CharSet::Ascii };
 
-    // Filter out dummy nodes — they are layout artefacts, not rendered.
+    // Separate nodes into categories.
+    let has_compounds = layout_nodes.iter().any(|n| n.id.starts_with(COMPOUND_PREFIX));
+
     let real_nodes: Vec<&LayoutNode> = layout_nodes
         .iter()
-        .filter(|n| !n.id.starts_with(DUMMY_PREFIX))
+        .filter(|n| !n.id.starts_with(DUMMY_PREFIX) && !n.id.starts_with(COMPOUND_PREFIX))
         .collect();
 
-    if real_nodes.is_empty() {
+    let compound_nodes: Vec<&LayoutNode> = layout_nodes
+        .iter()
+        .filter(|n| n.id.starts_with(COMPOUND_PREFIX))
+        .collect();
+
+    if real_nodes.is_empty() && compound_nodes.is_empty() {
         return String::new();
     }
 
@@ -664,8 +696,17 @@ pub fn render(
         .map(|ni| (gir.digraph[ni].id.as_str(), &gir.digraph[ni]))
         .collect();
 
-    // 1. Subgraph borders (drawn first so node boxes paint over them).
-    paint_subgraph_borders(gir, layout_nodes, &mut canvas);
+    // 1. Subgraph borders.
+    if has_compounds {
+        // New compound node approach: draw compound nodes as subgraph boxes.
+        for ln in &compound_nodes {
+            let sg_name = &ln.id[COMPOUND_PREFIX.len()..];
+            paint_compound_node(&mut canvas, ln, sg_name);
+        }
+    } else {
+        // Legacy: compute borders from member bounding boxes.
+        paint_subgraph_borders(gir, layout_nodes, &mut canvas);
+    }
 
     // 2. Node boxes + labels.
     for ln in &real_nodes {
