@@ -275,3 +275,180 @@ class TestAdjacencyList:
         adj = gir.adjacency_list()
         keys = [k for k, _ in adj]
         assert keys == sorted(keys)
+
+    def test_neighbors_sorted(self):
+        """Outgoing neighbors are sorted alphabetically."""
+        g = _make_graph(edges=[_edge("A", "C"), _edge("A", "B")])
+        gir = GraphIR.from_ast(g)
+        adj = dict(gir.adjacency_list())
+        assert adj["A"] == ["B", "C"]
+
+    def test_multiple_fanout(self):
+        g = _make_graph(edges=[_edge("A", "B"), _edge("A", "C"), _edge("A", "D")])
+        gir = GraphIR.from_ast(g)
+        adj = dict(gir.adjacency_list())
+        assert adj["A"] == ["B", "C", "D"]
+
+
+class TestAllEdgeTypes:
+    """Each EdgeType is stored and retrieved faithfully."""
+
+    def _gir_for(self, etype: EdgeType) -> GraphIR:
+        return GraphIR.from_ast(_make_graph(edges=[_edge("A", "B", etype)]))
+
+    def test_arrow(self):
+        gir = self._gir_for(EdgeType.Arrow)
+        assert gir.digraph.edges["A", "B"]["data"].edge_type == EdgeType.Arrow
+
+    def test_line(self):
+        gir = self._gir_for(EdgeType.Line)
+        assert gir.digraph.edges["A", "B"]["data"].edge_type == EdgeType.Line
+
+    def test_dotted_arrow(self):
+        gir = self._gir_for(EdgeType.DottedArrow)
+        assert gir.digraph.edges["A", "B"]["data"].edge_type == EdgeType.DottedArrow
+
+    def test_dotted_line(self):
+        gir = self._gir_for(EdgeType.DottedLine)
+        assert gir.digraph.edges["A", "B"]["data"].edge_type == EdgeType.DottedLine
+
+    def test_thick_arrow(self):
+        gir = self._gir_for(EdgeType.ThickArrow)
+        assert gir.digraph.edges["A", "B"]["data"].edge_type == EdgeType.ThickArrow
+
+    def test_thick_line(self):
+        gir = self._gir_for(EdgeType.ThickLine)
+        assert gir.digraph.edges["A", "B"]["data"].edge_type == EdgeType.ThickLine
+
+    def test_bidir_arrow(self):
+        gir = self._gir_for(EdgeType.BidirArrow)
+        assert gir.digraph.edges["A", "B"]["data"].edge_type == EdgeType.BidirArrow
+
+    def test_bidir_dotted(self):
+        gir = self._gir_for(EdgeType.BidirDotted)
+        assert gir.digraph.edges["A", "B"]["data"].edge_type == EdgeType.BidirDotted
+
+    def test_bidir_thick(self):
+        gir = self._gir_for(EdgeType.BidirThick)
+        assert gir.digraph.edges["A", "B"]["data"].edge_type == EdgeType.BidirThick
+
+
+class TestNodeEdgeCount:
+    def test_no_duplicate_nodes_from_shared_edge_endpoint(self):
+        """A --> B, A --> C should create exactly 3 distinct nodes."""
+        g = _make_graph(edges=[_edge("A", "B"), _edge("A", "C")])
+        gir = GraphIR.from_ast(g)
+        assert gir.node_count() == 3
+
+    def test_explicit_and_implicit_same_node(self):
+        """Explicit node + edge referencing same id → only 1 node."""
+        g = _make_graph(nodes=[_node("A")], edges=[_edge("A", "B")])
+        gir = GraphIR.from_ast(g)
+        assert gir.node_count() == 2  # A (explicit) + B (placeholder)
+
+    def test_diamond_graph(self):
+        g = _make_graph(edges=[
+            _edge("A", "B"), _edge("A", "C"),
+            _edge("B", "D"), _edge("C", "D"),
+        ])
+        gir = GraphIR.from_ast(g)
+        assert gir.node_count() == 4
+        assert gir.edge_count() == 4
+        assert gir.is_dag() is True
+
+
+class TestSubgraphFlatteningExtended:
+    def test_subgraph_edge_creates_placeholder_if_node_missing(self):
+        """An edge inside a subgraph referencing a node not in nodes list
+        creates a placeholder node."""
+        sg = Subgraph(name="SG", nodes=[], edges=[_edge("X", "Y")])
+        g = _make_graph(subgraphs=[sg])
+        gir = GraphIR.from_ast(g)
+        assert "X" in gir.digraph
+        assert "Y" in gir.digraph
+        assert gir.edge_count() == 1
+
+    def test_multiple_subgraphs_members(self):
+        sg1 = Subgraph(name="SG1", nodes=[_node("A"), _node("B")])
+        sg2 = Subgraph(name="SG2", nodes=[_node("C")])
+        g = _make_graph(subgraphs=[sg1, sg2])
+        gir = GraphIR.from_ast(g)
+        assert gir.node_count() == 3
+        assert len(gir.subgraph_members) == 2
+        names = {name for name, _ in gir.subgraph_members}
+        assert names == {"SG1", "SG2"}
+
+    def test_cross_subgraph_edge_at_top_level(self):
+        sg1 = Subgraph(name="SG1", nodes=[_node("A")])
+        sg2 = Subgraph(name="SG2", nodes=[_node("B")])
+        g = _make_graph(subgraphs=[sg1, sg2], edges=[_edge("A", "B")])
+        gir = GraphIR.from_ast(g)
+        assert gir.edge_count() == 1
+        assert gir.digraph.has_edge("A", "B")
+
+    def test_deeply_nested_subgraph(self):
+        innermost = Subgraph(name="Level3", nodes=[_node("P")])
+        middle = Subgraph(name="Level2", nodes=[_node("Q")], subgraphs=[innermost])
+        outer = Subgraph(name="Level1", nodes=[_node("R")], subgraphs=[middle])
+        g = _make_graph(subgraphs=[outer])
+        gir = GraphIR.from_ast(g)
+        assert gir.node_count() == 3
+        assert len(gir.subgraph_members) == 3
+        names = {name for name, _ in gir.subgraph_members}
+        assert names == {"Level1", "Level2", "Level3"}
+
+    def test_no_subgraph_descriptions_when_none(self):
+        sg = Subgraph(name="SG", nodes=[])
+        g = _make_graph(subgraphs=[sg])
+        gir = GraphIR.from_ast(g)
+        assert "SG" not in gir.subgraph_descriptions
+
+
+class TestFromParserIntegration:
+    """End-to-end: parse DSL → AST → GraphIR."""
+
+    def _build(self, dsl: str) -> GraphIR:
+        from mermaid_ascii.parser import parse
+        return GraphIR.from_ast(parse(dsl))
+
+    def test_simple_chain(self):
+        gir = self._build("graph TD\n    A --> B --> C\n")
+        assert gir.node_count() == 3
+        assert gir.edge_count() == 2
+        assert gir.is_dag() is True
+
+    def test_lr_direction(self):
+        gir = self._build("graph LR\n    A --> B\n")
+        assert gir.direction == Direction.LR
+
+    def test_cyclic_from_dsl(self):
+        gir = self._build("graph TD\n    A --> B\n    B --> A\n")
+        assert gir.is_dag() is False
+        assert gir.topological_order() is None
+
+    def test_subgraph_from_dsl(self):
+        dsl = "graph TD\n    subgraph Group\n        X --> Y\n    end\n"
+        gir = self._build(dsl)
+        assert gir.node_count() == 2
+        assert gir.edge_count() == 1
+        assert len(gir.subgraph_members) == 1
+        name, members = gir.subgraph_members[0]
+        assert name == "Group"
+
+    def test_adjacency_from_dsl(self):
+        gir = self._build("graph TD\n    A --> B\n    A --> C\n")
+        adj = dict(gir.adjacency_list())
+        assert "A" in adj
+        assert set(adj["A"]) == {"B", "C"}
+
+    def test_topological_order_from_dsl(self):
+        gir = self._build("graph TD\n    A --> B\n    B --> C\n")
+        order = gir.topological_order()
+        assert order is not None
+        assert order.index("A") < order.index("B")
+        assert order.index("B") < order.index("C")
+
+    def test_edge_label_preserved(self):
+        gir = self._build("graph TD\n    A -->|yes| B\n")
+        ed: EdgeData = gir.digraph.edges["A", "B"]["data"]
+        assert ed.label == "yes"
