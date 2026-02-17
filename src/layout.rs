@@ -1209,9 +1209,23 @@ fn assign_coordinates_padded(
             .collect()
     };
 
+    // Compute total width per layer for centering.
+    let layer_total_widths: Vec<usize> = ordering
+        .iter()
+        .map(|layer_nodes| {
+            let w_sum: usize = layer_nodes.iter().map(|id| node_dims(id).0).sum();
+            let gaps = if layer_nodes.len() > 1 { (layer_nodes.len() - 1) * H_GAP } else { 0 };
+            w_sum + gaps
+        })
+        .collect();
+    let max_layer_w = layer_total_widths.iter().copied().max().unwrap_or(0);
+    let center_col = max_layer_w / 2;
+
     let mut nodes: Vec<LayoutNode> = Vec::new();
     for (layer_idx, layer_nodes) in ordering.iter().enumerate() {
-        let mut x = 0usize;
+        // Center this layer's midpoint on center_col.
+        let offset = center_col.saturating_sub(layer_total_widths[layer_idx] / 2);
+        let mut x = offset;
         for (order, id) in layer_nodes.iter().enumerate() {
             let (width, height) = node_dims(id);
             nodes.push(LayoutNode {
