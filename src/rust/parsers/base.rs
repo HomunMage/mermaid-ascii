@@ -536,7 +536,6 @@ pub fn upsert_node(nodes: &mut Vec<Node>, node: Node) {
     }
 }
 
-
 #[cfg(test)]
 #[path = "../../../tests/rust/test_parsers_base.rs"]
 mod tests;

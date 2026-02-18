@@ -457,7 +457,6 @@ impl Renderer for AsciiRenderer {
     }
 }
 
-
 #[cfg(test)]
 #[path = "../../../tests/rust/test_renderers_ascii.rs"]
 mod tests;

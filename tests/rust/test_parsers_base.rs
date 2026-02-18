@@ -166,8 +166,7 @@ fn test_parse_graph_subgraph() {
 
 #[test]
 fn test_parse_graph_all_shapes() {
-    let mut c =
-        Cursor::new("graph TD\n    A[Rect] --> B(Round) --> C{Diamond} --> D((Circle))\n");
+    let mut c = Cursor::new("graph TD\n    A[Rect] --> B(Round) --> C{Diamond} --> D((Circle))\n");
     let g = c.parse_graph();
     assert_eq!(g.nodes[0].shape, NodeShape::Rectangle);
     assert_eq!(g.nodes[1].shape, NodeShape::Rounded);

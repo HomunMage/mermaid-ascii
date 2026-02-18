@@ -1321,7 +1321,6 @@ fn build_collapsed_gir(
     }
 }
 
-
 #[cfg(test)]
 #[path = "../../../tests/rust/test_layout_sugiyama.rs"]
 mod tests;

@@ -156,7 +156,6 @@ impl Arms {
     }
 }
 
-
 #[cfg(test)]
 #[path = "../../../tests/rust/test_renderers_charset.rs"]
 mod tests;

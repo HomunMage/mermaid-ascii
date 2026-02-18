@@ -243,8 +243,7 @@ fn test_assign_coordinates_chain_y_increases() {
     let ordering = minimise_crossings(&aug);
     let layout = assign_coordinates_padded(&ordering, &aug, 1, &HashMap::new(), &Direction::TD);
 
-    let node_map: HashMap<&str, &LayoutNode> =
-        layout.iter().map(|n| (n.id.as_str(), n)).collect();
+    let node_map: HashMap<&str, &LayoutNode> = layout.iter().map(|n| (n.id.as_str(), n)).collect();
     assert!(node_map["A"].y < node_map["B"].y);
     assert!(node_map["B"].y < node_map["C"].y);
 }
@@ -331,8 +330,7 @@ fn test_route_edges_from_to_ids_match() {
     let result = SugiyamaLayout::layout(&gir, 1);
     assert_eq!(result.edges.len(), 1);
     let edge = &result.edges[0];
-    let ids: std::collections::HashSet<&str> =
-        [edge.from_id.as_str(), edge.to_id.as_str()].into();
+    let ids: std::collections::HashSet<&str> = [edge.from_id.as_str(), edge.to_id.as_str()].into();
     assert!(ids.contains("A"));
     assert!(ids.contains("B"));
 }

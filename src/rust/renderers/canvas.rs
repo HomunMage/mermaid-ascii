@@ -156,7 +156,6 @@ impl std::fmt::Display for Canvas {
     }
 }
 
-
 #[cfg(test)]
 #[path = "../../../tests/rust/test_renderers_canvas.rs"]
 mod tests;

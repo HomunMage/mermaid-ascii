@@ -93,8 +93,8 @@ fn test_all_examples_match_expect() {
 
     let mut failures = Vec::new();
     for (name, mm_file, expect_file) in &pairs {
-        let src =
-            fs::read_to_string(mm_file).unwrap_or_else(|e| panic!("Cannot read {:?}: {}", mm_file, e));
+        let src = fs::read_to_string(mm_file)
+            .unwrap_or_else(|e| panic!("Cannot read {:?}: {}", mm_file, e));
         let expected = fs::read_to_string(expect_file)
             .unwrap_or_else(|e| panic!("Cannot read {:?}: {}", expect_file, e));
 
@@ -129,9 +129,18 @@ fn test_all_examples_match_expect() {
 fn test_ascii_flag() {
     let src = "graph TD\n    A --> B\n";
     let output = run_binary(src, &["--ascii"]);
-    assert!(!output.contains('┌'), "Unicode char found in --ascii output");
-    assert!(!output.contains('│'), "Unicode char found in --ascii output");
-    assert!(!output.contains('─'), "Unicode char found in --ascii output");
+    assert!(
+        !output.contains('┌'),
+        "Unicode char found in --ascii output"
+    );
+    assert!(
+        !output.contains('│'),
+        "Unicode char found in --ascii output"
+    );
+    assert!(
+        !output.contains('─'),
+        "Unicode char found in --ascii output"
+    );
     assert!(
         output.contains('+') || output.contains('|') || output.contains('-'),
         "No ASCII box chars in output"
