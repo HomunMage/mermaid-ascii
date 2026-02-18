@@ -13,6 +13,7 @@ Phases:
 from __future__ import annotations
 
 import copy
+import sys
 from dataclasses import dataclass, field
 
 import networkx as nx
@@ -464,7 +465,7 @@ def route_edges(
     node_map: dict[str, LayoutNode] = {n.id: n for n in layout_nodes}
 
     layer_count = max((n.layer for n in layout_nodes), default=-1) + 1
-    layer_top_y: list[int] = [10**9] * max(layer_count, 1)
+    layer_top_y: list[int] = [sys.maxsize] * max(layer_count, 1)
     layer_bottom_y: list[int] = [0] * max(layer_count, 1)
     for n in layout_nodes:
         if n.y < layer_top_y[n.layer]:

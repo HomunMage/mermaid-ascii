@@ -25,14 +25,17 @@ echo 'graph TD
 
 ## Install
 
+Build from source (Rust):
+
 ```sh
-pip install mermaid-ascii
+cargo build --release
+# Binary at ./target/release/mermaid-ascii
 ```
 
-Or with uv:
+Or install the Python library (no CLI — library only):
 
 ```sh
-uv pip install mermaid-ascii
+pip install mermaid-ascii
 ```
 
 ## Usage
@@ -84,6 +87,15 @@ echo 'graph TD
 +-v-+
 | C |
 +---+
+```
+
+### Python API (library usage)
+
+```python
+from mermaid_ascii.api import render_dsl
+
+output = render_dsl("graph TD\n    A --> B")
+print(output)
 ```
 
 ## Mermaid Syntax
@@ -292,33 +304,220 @@ Multi-phase compiler pipeline. Each phase transforms one representation to the n
 ### Module Map
 
 ```
-mermaid_ascii/
-├── api.py                  # render_dsl() — public API
-├── __main__.py             # CLI (click)
-├── config.py               # RenderConfig dataclass
+mermaid_ascii/                        # Python (library, no CLI)
+├── api.py                            # render_dsl() — public API
+├── config.py                         # RenderConfig dataclass
 ├── parsers/
-│   ├── registry.py         # detect_type() → parse() dispatch
-│   ├── base.py             # Parser protocol
-│   └── flowchart.py        # recursive descent parser
+│   ├── registry.py                   # detect_type() → parse() dispatch
+│   ├── base.py                       # Parser protocol
+│   └── flowchart.py                  # recursive descent parser
 ├── syntax/
-│   └── types.py            # Direction, NodeShape, EdgeType + AST: Graph, Node, Edge, Subgraph
+│   └── types.py                      # Direction, NodeShape, EdgeType + AST
 ├── layout/
-│   ├── engine.py           # full_layout() convenience API
-│   ├── graph.py            # GraphIR: networkx DiGraph wrapper (AST → graph)
-│   ├── sugiyama.py         # Sugiyama algorithm (8 phases)
-│   └── types.py            # LayoutNode, LayoutResult, RoutedEdge, Point
+│   ├── engine.py                     # full_layout() convenience API
+│   ├── graph.py                      # GraphIR: networkx DiGraph wrapper
+│   ├── sugiyama.py                   # Sugiyama algorithm (8 phases)
+│   └── types.py                      # LayoutNode, LayoutResult, RoutedEdge, Point
 └── renderers/
-    ├── base.py             # Renderer protocol
-    ├── ascii.py            # ASCII/Unicode renderer (7 phases)
-    ├── canvas.py           # Canvas: 2D char grid
-    └── charset.py          # BoxChars, Arms junction merging
+    ├── base.py                       # Renderer protocol
+    ├── ascii.py                      # ASCII/Unicode renderer (7 phases)
+    ├── canvas.py                     # Canvas: 2D char grid
+    └── charset.py                    # BoxChars, Arms junction merging
+
+src/rust/                             # Rust (library + CLI binary)
+├── lib.rs                            # render_dsl() — public API
+├── main.rs                           # CLI entry point (clap)
+├── config.rs                         # RenderConfig
+├── parsers/                          # (mirrors Python parsers/)
+├── syntax/                           # (mirrors Python syntax/)
+├── layout/                           # (mirrors Python layout/)
+└── renderers/                        # (mirrors Python renderers/)
 ```
+
+### Phase Boundary Contracts
+
+Each phase transforms one representation to the next. These type contracts are the **source of truth** — both Python and Rust must conform exactly. When adding features, update the contract first, then both implementations.
+
+#### AST (Parser → Layout)
+
+```
+Graph {
+    nodes:       Node[]          # all declared nodes
+    edges:       Edge[]          # all declared edges
+    subgraphs:   Subgraph[]      # nested subgraph blocks
+    direction:   Direction        # TD | BT | LR | RL
+}
+
+Node {
+    id:     str                  # unique identifier
+    label:  str                  # display text (may contain \n)
+    shape:  NodeShape            # Rectangle | Rounded | Diamond | Circle
+    attrs:  Attr[]               # key-value metadata (future use)
+}
+
+Edge {
+    from_id:    str
+    to_id:      str
+    edge_type:  EdgeType         # Arrow | Line | DottedArrow | DottedLine
+                                 # ThickArrow | ThickLine | BidirArrow
+                                 # BidirDotted | BidirThick
+    label:      str?             # optional edge label
+    attrs:      Attr[]
+}
+
+Subgraph {
+    id:          str
+    label:       str
+    nodes:       Node[]
+    edges:       Edge[]
+    subgraphs:   Subgraph[]      # nested
+    direction:   Direction?      # optional override
+}
+```
+
+#### Layout IR (Layout → Renderer)
+
+```
+LayoutResult {
+    nodes:                  LayoutNode[]
+    edges:                  RoutedEdge[]
+    direction:              Direction
+    subgraph_members:       (str, str[])[]     # (sg_name, member_ids)
+    subgraph_descriptions:  {str: str}         # sg_name → description
+}
+
+LayoutNode {
+    id:      str
+    layer:   uint              # Sugiyama layer index
+    order:   uint              # position within layer
+    x:       int               # column (char coords)
+    y:       int               # row (char coords)
+    width:   int               # box width in chars
+    height:  int               # box height in chars
+    label:   str
+    shape:   NodeShape
+}
+
+RoutedEdge {
+    from_id:    str
+    to_id:      str
+    label:      str?
+    edge_type:  EdgeType
+    waypoints:  Point[]        # orthogonal path segments
+}
+
+Point { x: int, y: int }      # char-grid coordinates
+
+# Internal prefixes (not visible to renderers as real nodes):
+DUMMY_PREFIX    = "__dummy_"   # dummy nodes from edge splitting
+COMPOUND_PREFIX = "__sg_"      # compound nodes from subgraph collapse
+```
+
+#### Renderer Contract
+
+Both Python and Rust renderers must follow these behavioral rules:
+
+```
+Canvas:
+  - Character width = Unicode scalar count (not byte length, not display width)
+  - to_string(): trim trailing whitespace per line, trim trailing empty lines,
+    end with single \n
+  - Negative coordinates: silently skip (don't paint)
+
+Node painting:
+  - Label centering: pad = (inner_width - char_count) / 2  (integer division)
+  - inner_width = box_width - 2
+
+Edge painting:
+  - Line chars: solid ─│, dotted ╌╎, thick ═║
+  - Arrow chars: ► ◄ ▼ ▲ (Unicode), > < v ^ (ASCII)
+  - Junction merging: Arms OR (─ + │ = ┼)
+  - Label placed at midpoint waypoint, one row above
+
+Direction transforms:
+  - LR/RL: transpose x↔y and width↔height before painting
+  - BT: flip vertical after painting (reverse rows, remap ▼↔▲ etc.)
+  - RL: flip horizontal after painting (reverse cols, remap ►↔◄ etc.)
+
+Sentinel values for min/max:
+  - Use language maximum (sys.maxsize / i64::MAX), not arbitrary constants
+```
+
+### Dual-Language Maintenance
+
+**Workflow: iterate fast in Python → port to Rust → compile to binary**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  1. Prototype & iterate in Python                       │
+│     - Fast feedback: uv run python -m pytest            │
+│     - All logic changes happen here first               │
+│     - Update .expect golden files if output changes     │
+│                                                         │
+│  2. Port changes to Rust (1:1 module match)             │
+│     - Follow the module map below                       │
+│     - Rust must produce identical output                 │
+│     - cd src/rust && cargo test                         │
+│                                                         │
+│  3. Verify parity                                       │
+│     - E2E tests: uv run python -m pytest tests/e2e/    │
+│     - Both languages tested against same .expect files  │
+│                                                         │
+│  4. Ship Rust binary                                    │
+│     - cargo build --release                             │
+│     - Cross-platform CI builds (linux/mac/windows)      │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Rules for keeping both languages in sync:**
+
+1. **Python is ground truth** — all new features start in Python
+2. **Contracts first** — update the Phase Boundary Contracts above before changing either implementation
+3. **Golden tests are shared** — both languages test against `examples/*.expect` files
+4. **Module map is 1:1** — every Python module has exactly one Rust counterpart (see table below)
+5. **Algorithm logic must match** — same variable names, same loop structures, same formulas where possible
+
+**When adding a new diagram type** (e.g., sequence diagrams):
+
+1. Add new parser in `parsers/sequence.py` → `parsers/sequence.rs`
+2. Add new AST types in `syntax/types.py` → `syntax/types.rs`
+3. Add new layout engine in `layout/sequence.py` → `layout/sequence.rs`
+4. All layout engines output the same `LayoutResult` — renderers don't change
+5. Update `parsers/registry.py` → `parsers/mod.rs` to dispatch the new type
+
+### Module Map (Python ↔ Rust)
+
+```
+Python (src/mermaid_ascii/)     Rust (src/rust/)                    Graph lib
+─────────────────────────────   ──────────────────────────────────  ─────────
+syntax/types.py                 syntax/types.rs                     —
+config.py                       config.rs                           —
+parsers/registry.py             parsers/mod.rs                      —
+parsers/base.py                 parsers/base.rs                     —
+parsers/flowchart.py            parsers/flowchart.rs                —
+layout/engine.py                layout/mod.rs                       —
+layout/graph.py                 layout/graph.rs                     networkx / petgraph
+layout/sugiyama.py              layout/sugiyama.rs                  networkx / petgraph
+layout/types.py                 layout/types.rs                     —
+renderers/base.py               renderers/mod.rs                    —
+renderers/ascii.py              renderers/ascii.rs                  —
+renderers/canvas.py             renderers/canvas.rs                 —
+renderers/charset.py            renderers/charset.rs                —
+api.py                          lib.rs                              —
+(no Python CLI)                 main.rs                             — (Rust-only CLI)
+```
+
+**Architectural note — Rust AdjGraph**: Rust's `sugiyama.rs` uses a lightweight `AdjGraph` struct (string-based adjacency list) as an intermediate representation for cycle removal, layer assignment, and crossing minimization. This exists because petgraph's index-based API is less ergonomic than networkx's string-keyed API for these algorithms. Python works directly on networkx throughout. The algorithm logic is identical — AdjGraph is a Rust-specific implementation detail that doesn't affect output.
 
 ### Dependencies
 
+**Python:**
 - [networkx](https://networkx.org/) — directed graph (petgraph equivalent)
-- [parsimonious](https://github.com/erikrose/parsimonious) — PEG grammar utilities
 - [click](https://click.palletsprojects.com/) — CLI framework
+
+**Rust:**
+- [petgraph](https://docs.rs/petgraph/) — directed graph (networkx equivalent)
+- [clap](https://docs.rs/clap/) — CLI framework (click equivalent)
 
 ### Reference
 

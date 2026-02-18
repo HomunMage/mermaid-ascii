@@ -13,6 +13,10 @@ path = "src/rust/main.rs"
 name = "mermaid_ascii"
 path = "src/rust/lib.rs"
 
+[[test]]
+name = "test_binary"
+path = "tests/e2e/test_binary.rs"
+
 [dependencies]
 petgraph = "0.6"
 clap = { version = "4", features = ["derive"] }

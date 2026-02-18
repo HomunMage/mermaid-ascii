@@ -11,6 +11,11 @@ if [[ "${1:-}" == "--check" ]]; then
     CHECK=true
 fi
 
+# Build Rust binary (release)
+echo "Building Rust binary..."
+cargo build --release
+BINARY="./target/release/mermaid-ascii"
+
 # Remove old generated files
 find examples -name '*.out.txt' -delete 2>/dev/null || true
 
@@ -18,7 +23,7 @@ find examples -name '*.out.txt' -delete 2>/dev/null || true
 find examples -name '*.mm.md' | sort | while read -r src; do
     out="${src%.mm.md}.out.txt"
     echo "  $src -> $out"
-    uv run python -m mermaid_ascii "$src" -o "$out"
+    "$BINARY" "$src" -o "$out"
 done
 
 echo ""

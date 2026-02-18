@@ -52,28 +52,26 @@ This project runs with autonomous Claude agents. **Never ask the user for permis
 
 ## Verification Approach
 - Python unit tests: `uv run python -m pytest`
-- Rust unit tests: `cd src/rust && cargo test`
-- Rust e2e tests (via Python): `uv run python -m pytest tests/e2e/test_rust_binary.py`
+- Rust unit + integration tests: `cargo test`
 - Visual output verified by generating examples: `bash examples/gen.sh`
 - Human reviews `.out.txt` files in `examples/` to confirm rendering correctness
 - Do NOT use snapshot tests for rendered output — ASCII art needs human eyes
 
 ## Tech Stack
 
-### Python
+### Python (library — no CLI)
 - **Python 3.12+**, package manager `uv` with `pyproject.toml`
 - **Parser**: hand-rolled recursive descent
 - **Graph**: `networkx` (DiGraph)
-- **CLI**: `click`
 - **Testing**: `pytest`
 - **Lint**: `ruff`
 
-### Rust
-- **Rust 2024 edition**, build with `cargo` (Cargo.toml at `src/rust/`)
+### Rust (library + CLI binary)
+- **Rust 2024 edition**, build with `cargo` (Cargo.toml at project root)
 - **Parser**: hand-rolled recursive descent (matching Python, NO pest)
 - **Graph**: `petgraph` (DiGraph)
 - **CLI**: `clap` (derive)
-- **Testing**: `cargo test` + Python e2e tests for binary
+- **Testing**: `cargo test` (unit tests + integration tests for binary)
 - **No other deps** besides petgraph + clap
 
 ## Module Mapping (Python ↔ Rust)
@@ -94,14 +92,17 @@ This project runs with autonomous Claude agents. **Never ask the user for permis
 | `renderers/canvas.py`        | `renderers/canvas.rs`         | Canvas 2D char grid                  |
 | `renderers/charset.py`       | `renderers/charset.rs`        | BoxChars, Arms junction merging      |
 | `api.py`                     | `lib.rs`                      | render_dsl() public API              |
-| `__main__.py`                | `main.rs`                     | CLI entry point                      |
+| *(no Python CLI)*            | `main.rs`                     | CLI entry point (Rust only)          |
 
 ## Key Files
+- `Cargo.toml` — Rust metadata, deps, build config
 - `pyproject.toml` — Python metadata, deps, build config
-- `src/rust/Cargo.toml` — Rust metadata, deps, build config
-- `src/mermaid_ascii/` — Python source
-- `src/rust/src/` — Rust source
-- `tests/` — pytest (Python unit tests + e2e tests for both Python and Rust binary)
+- `src/mermaid_ascii/` — Python source (library only, no CLI)
+- `src/rust/` — Rust source (lib.rs + main.rs)
+- `tests/unit/` — Python unit tests (pytest)
+- `tests/e2e/` — Python golden file tests (pytest)
+- `tests/test_binary.rs` — Rust integration tests for the compiled binary
+- `tests/rust/` — Rust unit test files (included from src via `#[path]`)
 - `examples/` — Shared example DSL files + golden .expect files
 - `scripts/` — Orchestrator/worker agent scripts
 - `_ref/` — Cloned reference repos (gitignored)

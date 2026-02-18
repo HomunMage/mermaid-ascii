@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from mermaid_ascii.syntax.types import Direction, NodeShape
+from mermaid_ascii.syntax.types import Direction, EdgeType, NodeShape
 
 
 @dataclass
@@ -37,7 +37,7 @@ class RoutedEdge:
     from_id: str
     to_id: str
     label: str | None
-    edge_type: object  # EdgeType
+    edge_type: EdgeType
     waypoints: list[Point]
 
 

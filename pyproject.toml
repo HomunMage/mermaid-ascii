@@ -6,11 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "parsimonious>=0.10",
     "networkx>=3.0",
-    "click>=8.0",
 ]
-
-[project.scripts]
-mermaid-ascii = "mermaid_ascii.__main__:main"
 
 [build-system]
 requires = ["hatchling"]

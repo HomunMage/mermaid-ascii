@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from mermaid_ascii.layout.types import COMPOUND_PREFIX, DUMMY_PREFIX, LayoutNode, LayoutResult, Point, RoutedEdge
 from mermaid_ascii.renderers.canvas import Canvas, Rect
 from mermaid_ascii.renderers.charset import BoxChars, CharSet
@@ -82,8 +84,8 @@ def _paint_subgraph_borders(
         if not members:
             continue
 
-        min_x = min_y = 10**9
-        max_x = max_y = 0
+        min_x = min_y = sys.maxsize
+        max_x = max_y = -sys.maxsize
 
         for member_id in members:
             ln = node_pos.get(member_id)
@@ -100,7 +102,7 @@ def _paint_subgraph_borders(
             if bottom > max_y:
                 max_y = bottom
 
-        if min_x == 10**9:
+        if min_x == sys.maxsize:
             continue
 
         margin_x = 2

@@ -11,7 +11,7 @@ on:
       - main
 
 jobs:
-  test-e2e:
+  test-rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,11 +38,13 @@ jobs:
       - name: Rust clippy
         run: cargo clippy -- -D warnings
 
-      - name: Rust unit tests
+      - name: Rust unit + integration tests
         run: cargo test
 
-      - name: Rust release build
-        run: cargo build --release
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -57,5 +59,8 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --frozen
 
-      - name: Run e2e tests
-        run: uv run python -m pytest tests/e2e/test_rust_binary.py -v
+      - name: Python lint
+        run: uv run ruff check src/mermaid_ascii/ tests/
+
+      - name: Python unit + golden tests
+        run: uv run python -m pytest tests/unit/ tests/e2e/test_examples.py -v
