@@ -30,6 +30,9 @@ tests/
 htmlcov/
 .coverage
 
+# Rust build artifacts
+target/
+
 # Project-specific
 _ref/
 _git.lock
