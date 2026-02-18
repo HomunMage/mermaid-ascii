@@ -1,6 +1,8 @@
-# Mermaid ASCII python
+# Mermaid ASCII rust
 
 A compiler that renders Mermaid flowchart syntax as ASCII/Unicode art.
+
+wasm playground at https://homun.posetmage.com/mermaid-ascii/
 
 ```
 echo 'graph TD
