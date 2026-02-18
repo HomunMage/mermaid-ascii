@@ -8,17 +8,17 @@ from mermaid_ascii.layout.sugiyama import (
     _compute_orthogonal_waypoints,
     assign_coordinates_padded,
 )
-from mermaid_ascii.layout.types import LayoutNode, RoutedEdge
+from mermaid_ascii.layout.types import LayoutResult
 from mermaid_ascii.syntax.graph import GraphIR
 from mermaid_ascii.types import Direction
 
 
-def full_layout(gir: GraphIR) -> tuple[list[LayoutNode], list[RoutedEdge]]:
+def full_layout(gir: GraphIR) -> LayoutResult:
     """Run the full layout pipeline with default padding."""
     return full_layout_with_padding(gir, NODE_PADDING)
 
 
-def full_layout_with_padding(gir: GraphIR, padding: int) -> tuple[list[LayoutNode], list[RoutedEdge]]:
+def full_layout_with_padding(gir: GraphIR, padding: int) -> LayoutResult:
     """Run the default (Sugiyama) layout pipeline."""
     engine = SugiyamaLayout()
     return engine.layout(gir, padding)

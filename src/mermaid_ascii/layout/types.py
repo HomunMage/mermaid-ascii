@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from mermaid_ascii.types import Direction, NodeShape
 
 
 @dataclass
@@ -16,6 +18,8 @@ class LayoutNode:
     y: int
     width: int
     height: int
+    label: str = ""
+    shape: NodeShape = NodeShape.Rectangle
 
 
 @dataclass
@@ -35,6 +39,17 @@ class RoutedEdge:
     label: str | None
     edge_type: object  # EdgeType
     waypoints: list[Point]
+
+
+@dataclass
+class LayoutResult:
+    """Self-contained layout output — everything renderers need."""
+
+    nodes: list[LayoutNode]
+    edges: list[RoutedEdge]
+    direction: Direction
+    subgraph_members: list[tuple[str, list[str]]] = field(default_factory=list)
+    subgraph_descriptions: dict[str, str] = field(default_factory=dict)
 
 
 # Prefix constants

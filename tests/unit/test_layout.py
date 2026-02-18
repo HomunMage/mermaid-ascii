@@ -1234,20 +1234,20 @@ class TestFullLayout:
     def test_simple_chain_returns_nodes_and_edges(self):
         """full_layout on A→B returns LayoutNodes and RoutedEdges for both nodes + edge."""
         gir = self._parse_gir("graph TD\n    A --> B\n")
-        layout_nodes, routed_edges = full_layout(gir)
-        ids = {n.id for n in layout_nodes}
+        result = full_layout(gir)
+        ids = {n.id for n in result.nodes}
         assert "A" in ids
         assert "B" in ids
-        assert len(routed_edges) == 1
+        assert len(result.edges) == 1
 
     def test_all_coords_non_negative(self):
         """All node coordinates from full_layout must be non-negative."""
         gir = self._parse_gir("graph TD\n    A --> B\n    A --> C\n    B --> D\n")
-        layout_nodes, routed_edges = full_layout(gir)
-        for n in layout_nodes:
+        result = full_layout(gir)
+        for n in result.nodes:
             assert n.x >= 0
             assert n.y >= 0
-        for r in routed_edges:
+        for r in result.edges:
             for wp in r.waypoints:
                 assert wp.x >= 0
                 assert wp.y >= 0
@@ -1255,19 +1255,19 @@ class TestFullLayout:
     def test_custom_padding_returns_wider_nodes(self):
         """full_layout_with_padding with larger padding returns wider nodes."""
         gir = self._parse_gir("graph TD\n    Hello --> World\n")
-        nodes_p1, _ = full_layout_with_padding(gir, 1)
-        nodes_p3, _ = full_layout_with_padding(gir, 3)
+        result_p1 = full_layout_with_padding(gir, 1)
+        result_p3 = full_layout_with_padding(gir, 3)
         # Find the "Hello" node in each
-        n_p1 = next(n for n in nodes_p1 if n.id == "Hello")
-        n_p3 = next(n for n in nodes_p3 if n.id == "Hello")
+        n_p1 = next(n for n in result_p1.nodes if n.id == "Hello")
+        n_p3 = next(n for n in result_p3.nodes if n.id == "Hello")
         assert n_p3.width > n_p1.width, "Larger padding should produce wider nodes"
 
     def test_subgraph_layout_includes_members(self):
         """full_layout on a graph with subgraph includes both compound and member nodes."""
         dsl = "graph TD\n    subgraph G\n        X --> Y\n    end\n"
         gir = self._parse_gir(dsl)
-        layout_nodes, _ = full_layout(gir)
-        ids = {n.id for n in layout_nodes}
+        result = full_layout(gir)
+        ids = {n.id for n in result.nodes}
         # Should contain the compound node
         assert any(nid.startswith(COMPOUND_PREFIX) for nid in ids), f"Expected compound node, got ids: {ids}"
         # Should contain member nodes X and Y
@@ -1277,16 +1277,16 @@ class TestFullLayout:
     def test_lr_direction_layout_valid(self):
         """full_layout with LR direction produces valid non-negative coordinates."""
         gir = self._parse_gir("graph LR\n    A --> B\n    B --> C\n")
-        layout_nodes, routed_edges = full_layout(gir)
-        for n in layout_nodes:
+        result = full_layout(gir)
+        for n in result.nodes:
             assert n.x >= 0
             assert n.y >= 0
-        assert len(routed_edges) == 2
+        assert len(result.edges) == 2
 
     def test_empty_single_node_layout(self):
         """full_layout on a single node with no edges returns that node."""
         gir = self._parse_gir("graph TD\n    Lonely\n")
-        layout_nodes, routed_edges = full_layout(gir)
-        ids = {n.id for n in layout_nodes}
+        result = full_layout(gir)
+        ids = {n.id for n in result.nodes}
         assert "Lonely" in ids
-        assert routed_edges == []
+        assert result.edges == []

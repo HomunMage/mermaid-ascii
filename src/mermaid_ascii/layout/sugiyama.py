@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 import networkx as nx
 
-from mermaid_ascii.layout.types import COMPOUND_PREFIX, DUMMY_PREFIX, LayoutNode, Point, RoutedEdge
+from mermaid_ascii.layout.types import COMPOUND_PREFIX, DUMMY_PREFIX, LayoutNode, LayoutResult, Point, RoutedEdge
 from mermaid_ascii.syntax.graph import EdgeData, GraphIR, NodeData
 from mermaid_ascii.types import Direction, EdgeType, NodeShape
 
@@ -324,13 +324,16 @@ def assign_coordinates_padded(
     v_gap = H_GAP if is_lr_or_rl else V_GAP
 
     id_to_label_info: dict[str, tuple[int, int]] = {}
+    id_to_meta: dict[str, tuple[str, NodeShape]] = {}
     for node_id in aug.graph.nodes:
         node_attrs = aug.graph.nodes[node_id]
         node_data: NodeData | None = node_attrs.get("data")
         if node_data is not None:
             id_to_label_info[node_id] = label_dimensions(node_data.label)
+            id_to_meta[node_id] = (node_data.label, node_data.shape)
         else:
             id_to_label_info[node_id] = (len(node_id), 1)
+            id_to_meta[node_id] = (node_id, NodeShape.Rectangle)
 
     def node_dims(node_id: str) -> tuple[int, int]:
         if node_id in size_overrides:
@@ -372,6 +375,7 @@ def assign_coordinates_padded(
         x = offset
         for order, node_id in enumerate(layer_nodes):
             width, height = node_dims(node_id)
+            meta = id_to_meta.get(node_id, (node_id, NodeShape.Rectangle))
             nodes.append(
                 LayoutNode(
                     id=node_id,
@@ -381,6 +385,8 @@ def assign_coordinates_padded(
                     y=layer_y[layer_idx],
                     width=width,
                     height=height,
+                    label=meta[0],
+                    shape=meta[1],
                 )
             )
             x += width + h_gap
@@ -575,6 +581,8 @@ class CompoundInfo:
     member_heights: list[int]
     max_member_height: int
     description: str | None
+    member_labels: list[str] = field(default_factory=list)
+    member_shapes: list[NodeShape] = field(default_factory=list)
 
 
 def collapse_subgraphs(gir: GraphIR, padding: int) -> tuple[GraphIR, list[CompoundInfo]]:
@@ -586,6 +594,8 @@ def collapse_subgraphs(gir: GraphIR, padding: int) -> tuple[GraphIR, list[Compou
         compound_id = f"{COMPOUND_PREFIX}{sg_name}"
         member_widths: list[int] = []
         member_heights: list[int] = []
+        member_labels: list[str] = []
+        member_shapes: list[NodeShape] = []
 
         for mid in members:
             if mid in gir.digraph.nodes:
@@ -595,12 +605,18 @@ def collapse_subgraphs(gir: GraphIR, padding: int) -> tuple[GraphIR, list[Compou
                     max_line_w, line_count = label_dimensions(data.label)
                     member_widths.append(max_line_w + 2 + 2 * padding)
                     member_heights.append(2 + line_count)
+                    member_labels.append(data.label)
+                    member_shapes.append(data.shape)
                 else:
                     member_widths.append(3 + 2 * padding)
                     member_heights.append(NODE_HEIGHT)
+                    member_labels.append(mid)
+                    member_shapes.append(NodeShape.Rectangle)
             else:
                 member_widths.append(3 + 2 * padding)
                 member_heights.append(NODE_HEIGHT)
+                member_labels.append(mid)
+                member_shapes.append(NodeShape.Rectangle)
             member_to_sg[mid] = sg_name
 
         max_member_height = max(member_heights, default=NODE_HEIGHT)
@@ -615,6 +631,8 @@ def collapse_subgraphs(gir: GraphIR, padding: int) -> tuple[GraphIR, list[Compou
                 member_heights=member_heights,
                 max_member_height=max_member_height,
                 description=description,
+                member_labels=member_labels,
+                member_shapes=member_shapes,
             )
         )
 
@@ -705,6 +723,8 @@ def expand_compound_nodes(layout_nodes: list[LayoutNode], compounds: list[Compou
                         y=member_y,
                         width=ci.member_widths[i],
                         height=ci.member_heights[i],
+                        label=ci.member_labels[i] if i < len(ci.member_labels) else mid,
+                        shape=ci.member_shapes[i] if i < len(ci.member_shapes) else NodeShape.Rectangle,
                     )
                 )
                 member_x += ci.member_widths[i] + _SG_INNER_GAP
@@ -718,7 +738,7 @@ def expand_compound_nodes(layout_nodes: list[LayoutNode], compounds: list[Compou
 class SugiyamaLayout:
     """Sugiyama layered layout engine."""
 
-    def layout(self, gir: GraphIR, padding: int) -> tuple[list[LayoutNode], list[RoutedEdge]]:
+    def layout(self, gir: GraphIR, padding: int) -> LayoutResult:
         has_subgraphs = bool(gir.subgraph_members)
 
         if not has_subgraphs:
@@ -728,7 +748,13 @@ class SugiyamaLayout:
             ordering = minimise_crossings(aug)
             layout_nodes = assign_coordinates_padded(ordering, aug, padding, {}, gir.direction)
             routed_edges = route_edges(gir, layout_nodes, aug, reversed_edges)
-            return layout_nodes, routed_edges
+            return LayoutResult(
+                nodes=layout_nodes,
+                edges=routed_edges,
+                direction=gir.direction,
+                subgraph_members=list(gir.subgraph_members),
+                subgraph_descriptions=dict(gir.subgraph_descriptions),
+            )
 
         collapsed, compounds = collapse_subgraphs(gir, padding)
         dim_overrides = compute_compound_dimensions(compounds, padding)
@@ -742,4 +768,10 @@ class SugiyamaLayout:
         expanded = expand_compound_nodes(layout_nodes, compounds)
         routed_edges = route_edges(collapsed, expanded, aug, reversed_edges)
 
-        return expanded, routed_edges
+        return LayoutResult(
+            nodes=expanded,
+            edges=routed_edges,
+            direction=gir.direction,
+            subgraph_members=list(gir.subgraph_members),
+            subgraph_descriptions=dict(gir.subgraph_descriptions),
+        )

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from mermaid_ascii.layout.types import COMPOUND_PREFIX, DUMMY_PREFIX, LayoutNode, Point, RoutedEdge
+from mermaid_ascii.layout.types import COMPOUND_PREFIX, DUMMY_PREFIX, LayoutNode, LayoutResult, Point, RoutedEdge
 from mermaid_ascii.renderers.canvas import Canvas, Rect
 from mermaid_ascii.renderers.charset import BoxChars, CharSet
-from mermaid_ascii.syntax.graph import GraphIR
 from mermaid_ascii.types import Direction, EdgeType, NodeShape
 
 # ─── Node Rendering ──────────────────────────────────────────────────────────
@@ -73,11 +72,13 @@ def _paint_compound_node(canvas: Canvas, ln: LayoutNode, sg_name: str, descripti
         canvas.write_str(desc_col, desc_row, description)
 
 
-def _paint_subgraph_borders(gir: GraphIR, layout_nodes: list[LayoutNode], canvas: Canvas) -> None:
+def _paint_subgraph_borders(
+    subgraph_members: list[tuple[str, list[str]]], layout_nodes: list[LayoutNode], canvas: Canvas
+) -> None:
     node_pos: dict[str, LayoutNode] = {n.id: n for n in layout_nodes}
     bc = BoxChars.for_charset(canvas.charset)
 
-    for sg_name, members in gir.subgraph_members:
+    for sg_name, members in subgraph_members:
         if not members:
             continue
 
@@ -289,17 +290,12 @@ class AsciiRenderer:
     def __init__(self, unicode: bool = True) -> None:
         self.unicode = unicode
 
-    def render(
-        self,
-        gir: GraphIR,
-        layout_nodes: list[LayoutNode],
-        routed_edges: list[RoutedEdge],
-    ) -> str:
+    def render(self, result: LayoutResult) -> str:
         cs = CharSet.Unicode if self.unicode else CharSet.Ascii
 
-        if gir.direction in (Direction.TD, Direction.BT):
-            nodes = list(layout_nodes)
-            edges = list(routed_edges)
+        if result.direction in (Direction.TD, Direction.BT):
+            nodes = list(result.nodes)
+            edges = list(result.edges)
         else:  # LR or RL
             nodes = [
                 LayoutNode(
@@ -310,8 +306,10 @@ class AsciiRenderer:
                     y=n.y,
                     width=n.width,
                     height=n.height,
+                    label=n.label,
+                    shape=n.shape,
                 )
-                for n in layout_nodes
+                for n in result.nodes
             ]
             edges = [
                 RoutedEdge(
@@ -321,7 +319,7 @@ class AsciiRenderer:
                     edge_type=re.edge_type,
                     waypoints=[Point(x=p.x, y=p.y) for p in re.waypoints],
                 )
-                for re in routed_edges
+                for re in result.edges
             ]
             _transpose_layout(nodes, edges)
 
@@ -335,33 +333,24 @@ class AsciiRenderer:
         width, height = _canvas_dimensions(nodes, edges)
         canvas = Canvas(width, height, cs)
 
-        node_data_map = {}
-        for node_id in gir.digraph.nodes:
-            node_data = gir.digraph.nodes[node_id].get("data")
-            if node_data is not None:
-                node_data_map[node_id] = node_data
-
         if has_compounds:
             for ln in compound_nodes:
                 sg_name = ln.id[len(COMPOUND_PREFIX) :]
-                desc = gir.subgraph_descriptions.get(sg_name)
+                desc = result.subgraph_descriptions.get(sg_name)
                 _paint_compound_node(canvas, ln, sg_name, desc)
         else:
-            _paint_subgraph_borders(gir, nodes, canvas)
+            _paint_subgraph_borders(result.subgraph_members, nodes, canvas)
 
         for ln in real_nodes:
-            nd = node_data_map.get(ln.id)
-            shape = nd.shape if nd is not None else NodeShape.Rectangle
-            label = nd.label if nd is not None else ln.id
-            _paint_node(canvas, ln, shape, label)
+            _paint_node(canvas, ln, ln.shape, ln.label)
 
         for re in edges:
             _paint_edge(canvas, re, re.edge_type)
 
         rendered = canvas.to_string()
 
-        if gir.direction == Direction.BT:
+        if result.direction == Direction.BT:
             return flip_vertical(rendered)
-        elif gir.direction == Direction.RL:
+        elif result.direction == Direction.RL:
             return flip_horizontal(rendered)
         return rendered

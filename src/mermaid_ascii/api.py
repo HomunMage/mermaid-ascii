@@ -32,9 +32,9 @@ def render_dsl(src: str, unicode: bool = True, padding: int = 1, direction: str 
     gir = GraphIR.from_ast(ast_graph)
     if gir.node_count() == 0 and not gir.subgraph_members:
         return ""
-    layout_nodes, routed_edges = full_layout_with_padding(gir, padding)
+    layout_result = full_layout_with_padding(gir, padding)
     renderer = AsciiRenderer(unicode=unicode)
-    return renderer.render(gir, layout_nodes, routed_edges)
+    return renderer.render(layout_result)
 
 
 def render_dsl_padded(src: str, unicode: bool = True, padding: int = 1) -> str:

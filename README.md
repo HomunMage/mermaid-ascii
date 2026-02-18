@@ -203,51 +203,51 @@ bash examples/gen.sh
 Multi-phase compiler pipeline. Each phase transforms one representation to the next.
 
 ```
-                          Mermaid DSL text
-                                │
-                                ▼
-                    ┌───────────────────────┐
-                    │  Tokenizer + Parser   │  parsers/registry.py
-                    │  (recursive descent)  │  parsers/flowchart.py
-                    └───────────┬───────────┘
-                                │
-          ┌─────────────────────┼─────────────────────┐
-          │                     │                     │
-          ▼                     ▼                     ▼
-   ┌──────────────┐    ┌──────────────┐    ┌────────────────┐
-   │  Flowchart   │    │  Sequence    │    │ Architecture   │
-   │  AST         │    │  AST         │    │ AST            │
-   │  (current)   │    │  (future)    │    │ (future)       │
-   └──────┬───────┘    └──────┬───────┘    └───────┬────────┘
-          │                   │                    │
-          │ graph(Sugiyama)   │ timeline(linear)   │ grid(force)
-          ▼                   ▼                    ▼
-   ┌──────────────┐    ┌──────────────┐    ┌────────────────┐
-   │  Sugiyama    │    │  Sequence    │    │ Architecture   │
-   │  Layout      │    │  Layout      │    │ Layout         │
-   │  (current)   │    │  (future)    │    │ (future)       │
-   └──────┬───────┘    └──────┬───────┘    └───────┬────────┘
-          │                   │                   │
-          └─────────────┬─────┴───────────────────┘
-                        │
-                        ▼
-                 ┌──────────────┐
-                 │  Layout IR   │  layout/types.py
-                 │ LayoutNode[] │  x, y, width, height per node
-                 │ RoutedEdge[] │  waypoints per edge
-                 └───────┬──────┘
-                         │
-                   ┌─────┼─────┐
-                   │           │
-                   ▼           ▼
-              ┌─────────┐ ┌─────────┐
-              │  ASCII  │ │   SVG   │
-              │Renderer │ │Renderer │
-              │(current)│ │(future) │
-              └────┬────┘ └─────────┘
-                   │
-                   ▼
-            ASCII/Unicode string
+                    Mermaid DSL text
+                           │
+                           ▼
+               ┌───────────────────────┐
+               │  Tokenizer + Parser   │  parsers/registry.py
+               │  (recursive descent)  │  parsers/flowchart.py
+               └───────────┬───────────┘
+                           │
+       ┌───────────────────┼────────────────────┐
+       │                   │                    │
+       ▼                   ▼                    ▼
+┌──────────────┐    ┌──────────────┐    ┌────────────────┐
+│  Flowchart   │    │  Sequence    │    │ Architecture   │
+│  AST         │    │  AST         │    │ AST            │
+│  (current)   │    │  (future)    │    │ (future)       │
+└──────┬───────┘    └──────┬───────┘    └───────┬────────┘
+       │                   │                    │
+       │ graph(Sugiyama)   │ timeline(linear)   │ grid(force)
+       ▼                   ▼                    ▼
+┌──────────────┐    ┌──────────────┐    ┌────────────────┐
+│  Sugiyama    │    │  Sequence    │    │ Architecture   │
+│  Layout      │    │  Layout      │    │ Layout         │
+│  (current)   │    │  (future)    │    │ (future)       │
+└──────┬───────┘    └──────┬───────┘    └───────┬────────┘
+       │                   │                    │
+       └───────────────┬───┴────────────────────┘
+                       │
+                       ▼
+                ┌──────────────┐
+                │  Layout IR   │  layout/types.py
+                │ LayoutNode[] │  x, y, width, height per node
+                │ RoutedEdge[] │  waypoints per edge
+                └──────┬───────┘
+                       │
+                 ┌─────┼─────┐
+                 │           │
+                 ▼           ▼
+            ┌─────────┐ ┌─────────┐
+            │  ASCII  │ │   SVG   │
+            │Renderer │ │Renderer │
+            │(current)│ │(future) │
+            └────┬────┘ └─────────┘
+                 │
+                 ▼
+         ASCII/Unicode string
 
 
   Sugiyama Layout Algorithm Phases:
