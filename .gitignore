@@ -25,3 +25,6 @@ llm*status
 out/
 *.log
 _ref/
+
+# Rust build artifacts
+src/rust/target/
