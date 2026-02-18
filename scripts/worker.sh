@@ -44,30 +44,33 @@ ${TASK_PROMPT}
 WORKFLOW (follow strictly):
 1. Read status files to understand current phase and progress
 2. Implement your assigned task
-3. Verify it works: uv run python -m pytest (minimum), uv run python -m mermaid_ascii if applicable
-4. MANDATORY: Run ruff before committing:
-   uv run ruff check --fix src/ tests/
-   uv run ruff format src/ tests/
-   uv run ruff check src/ tests/  (must pass with 0 errors)
+3. Verify it works:
+   - Python tasks: uv run python -m pytest
+   - Rust tasks: cd src/rust && cargo test && cd ../..
+4. MANDATORY lint before committing:
+   - Python: uv run ruff check --fix src/mermaid_ascii/ tests/ && uv run ruff format src/mermaid_ascii/ tests/
+   - Rust: cd src/rust && cargo fmt && cargo clippy && cd ../..
 5. Git commit with lock (to avoid conflicts with other workers):
    while ! mkdir ${GIT_LOCK} 2>/dev/null; do sleep 2; done
    git add -A && git commit -m \"phase N: description\" --no-verify
    rmdir ${GIT_LOCK}
-6. If code smells: refactor, verify again, run ruff again, commit again (use lock)
+6. If code smells: refactor, verify again, lint again, commit again (use lock)
 7. Update llm.working.status — APPEND your update at the bottom with [W${WORKER_ID}] prefix
 8. Write DONE to: ${TRIGGER_FILE}
 
 RULES:
-- You are a senior programmer. Write clean, idiomatic Python 3.12+ code with type hints.
+- You are a senior programmer. This is a dual-language repo (Python + Rust).
+- For Python: Write clean, idiomatic Python 3.12+ with type hints.
+- For Rust: Write clean, idiomatic Rust 2024 edition. Match Python module structure 1:1.
+- Rust source is at src/rust/src/. Python source is at src/mermaid_ascii/.
+- Reference old Rust code at ../mermaid-ascii-rust/src/ for logic, but restructure to match Python layout.
 - Small steps only. One function, one module, one feature at a time.
-- Always verify before committing (uv run python -m pytest at minimum)
+- Always verify before committing (tests + lint)
 - Use the git lock (mkdir/rmdir ${GIT_LOCK}) around ALL git add/commit operations
 - If something breaks and can't fix in 3 attempts: git stash, write BLOCKED to ${TRIGGER_FILE}
 - Never ask questions. Make reasonable decisions and document them.
-- Generate sample output files in out/ for phases that need verification
 - If ALL phases in llm.plan.status are complete, write ALL_COMPLETE to ${TRIGGER_FILE}
 - Do NOT edit files that another worker might be editing simultaneously
-- Reference implementation is at ../mermaid-ascii-rust/src/ — read the Rust code when unsure
 " 2>&1 | tee -a "$LOG_FILE"
 
 log "Worker ${WORKER_ID} finished."
