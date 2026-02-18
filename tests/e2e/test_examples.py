@@ -23,6 +23,16 @@ def find_example_pairs() -> list[tuple[str, Path, Path]]:
 EXAMPLE_PAIRS = find_example_pairs()
 
 
+@pytest.fixture(autouse=True, scope="session")
+def clean_out_files():
+    """Delete all *.out.txt before and after the test session."""
+    for f in EXAMPLES_DIR.rglob("*.out.txt"):
+        f.unlink()
+    yield
+    for f in EXAMPLES_DIR.rglob("*.out.txt"):
+        f.unlink()
+
+
 @pytest.mark.parametrize("name,mm_file,expect_file", EXAMPLE_PAIRS, ids=[p[0] for p in EXAMPLE_PAIRS])
 def test_example_matches_expect(name: str, mm_file: Path, expect_file: Path) -> None:
     """Render a .mm.md file and compare output against .expect golden file."""
