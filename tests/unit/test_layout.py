@@ -32,8 +32,6 @@ from __future__ import annotations
 
 import networkx as nx
 
-from mermaid_ascii.ir import ast as mast
-from mermaid_ascii.ir.graph import EdgeData, GraphIR, NodeData
 from mermaid_ascii.layout.engine import (
     assign_coordinates,
     compute_orthogonal_waypoints,
@@ -63,6 +61,8 @@ from mermaid_ascii.layout.sugiyama import (
     route_edges,
 )
 from mermaid_ascii.layout.types import DUMMY_PREFIX, LayoutNode, Point, RoutedEdge
+from mermaid_ascii.syntax import types as mast
+from mermaid_ascii.syntax.graph import EdgeData, GraphIR, NodeData
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 

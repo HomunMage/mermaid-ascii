@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import networkx as nx
 
-from mermaid_ascii.ir import ast
+from mermaid_ascii.syntax import types as ast
 from mermaid_ascii.types import EdgeType, NodeShape
 
 

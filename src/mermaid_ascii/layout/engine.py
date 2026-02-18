@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from mermaid_ascii.ir.graph import GraphIR
 from mermaid_ascii.layout.sugiyama import (
     NODE_PADDING,
     SugiyamaLayout,
@@ -10,6 +9,7 @@ from mermaid_ascii.layout.sugiyama import (
     assign_coordinates_padded,
 )
 from mermaid_ascii.layout.types import LayoutNode, RoutedEdge
+from mermaid_ascii.syntax.graph import GraphIR
 from mermaid_ascii.types import Direction
 
 

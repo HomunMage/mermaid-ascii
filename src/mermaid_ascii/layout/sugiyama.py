@@ -17,8 +17,8 @@ from dataclasses import dataclass, field
 
 import networkx as nx
 
-from mermaid_ascii.ir.graph import EdgeData, GraphIR, NodeData
 from mermaid_ascii.layout.types import COMPOUND_PREFIX, DUMMY_PREFIX, LayoutNode, Point, RoutedEdge
+from mermaid_ascii.syntax.graph import EdgeData, GraphIR, NodeData
 from mermaid_ascii.types import Direction, EdgeType, NodeShape
 
 # ─── Geometry constants ──────────────────────────────────────────────────────

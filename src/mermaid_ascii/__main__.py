@@ -4,10 +4,10 @@ import sys
 
 import click
 
-from mermaid_ascii.ir.graph import GraphIR
 from mermaid_ascii.layout.engine import full_layout_with_padding
 from mermaid_ascii.parsers.registry import parse
 from mermaid_ascii.renderers.ascii import AsciiRenderer
+from mermaid_ascii.syntax.graph import GraphIR
 from mermaid_ascii.types import Direction
 
 _DIRECTION_MAP: dict[str, Direction] = {

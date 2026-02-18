@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from mermaid_ascii.ir.ast import Graph
+from mermaid_ascii.syntax.types import Graph
 
 
 class Parser(Protocol):

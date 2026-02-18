@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from mermaid_ascii.ir.graph import GraphIR
 from mermaid_ascii.layout.types import LayoutNode, RoutedEdge
+from mermaid_ascii.syntax.graph import GraphIR
 
 
 class Renderer(Protocol):

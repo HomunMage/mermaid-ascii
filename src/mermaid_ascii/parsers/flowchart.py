@@ -1,6 +1,6 @@
 """Flowchart parser — hand-rolled recursive descent.
 
-Parses Mermaid flowchart/graph DSL into the AST types from ir.ast.
+Parses Mermaid flowchart/graph DSL into the AST types from ast.types.
 """
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from mermaid_ascii.ir.ast import Edge, Graph, Node, Subgraph
+from mermaid_ascii.syntax.types import Edge, Graph, Node, Subgraph
 from mermaid_ascii.types import Direction, EdgeType, NodeShape
 
 # ─── Tokenizer ───────────────────────────────────────────────────────────────

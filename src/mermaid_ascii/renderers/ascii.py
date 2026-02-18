@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from mermaid_ascii.ir.graph import GraphIR
 from mermaid_ascii.layout.types import COMPOUND_PREFIX, DUMMY_PREFIX, LayoutNode, Point, RoutedEdge
 from mermaid_ascii.renderers.canvas import Canvas, Rect
 from mermaid_ascii.renderers.charset import BoxChars, CharSet
+from mermaid_ascii.syntax.graph import GraphIR
 from mermaid_ascii.types import Direction, EdgeType, NodeShape
 
 # ─── Node Rendering ──────────────────────────────────────────────────────────

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from mermaid_ascii.ir.ast import Graph
 from mermaid_ascii.parsers.flowchart import FlowchartParser
+from mermaid_ascii.syntax.types import Graph
 
 
 def detect_type(src: str) -> str:

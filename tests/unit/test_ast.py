@@ -1,6 +1,6 @@
 """Tests for mermaid_ascii.ast — port of Rust ast tests."""
 
-from mermaid_ascii.ir.ast import (
+from mermaid_ascii.syntax.types import (
     Attr,
     Edge,
     Graph,

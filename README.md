@@ -212,13 +212,13 @@ Mermaid DSL text
 │     parsers/registry.py  — type detection    │
 │     parsers/flowchart.py — flowchart grammar │
 └──────────────┬───────────────────────────────┘
-               │  AST (ir/ast.py)
+               │  AST (syntax/types.py)
                │  Graph, Node, Edge, Subgraph
                ▼
 ┌──────────────────────────────────────────────┐
-│  2. IR BUILDER  (ir/)                        │
+│  2. GRAPH BUILDER  (syntax/)                 │
 │     AST → networkx DiGraph                   │
-│     ir/graph.py — GraphIR with topology ops  │
+│     syntax/graph.py — GraphIR topology ops   │
 └──────────────┬───────────────────────────────┘
                │  GraphIR (networkx DiGraph
                │    + node/edge metadata
@@ -274,8 +274,8 @@ mermaid_ascii/
 │   ├── registry.py         # detect_type() + parse() dispatcher
 │   ├── base.py             # Parser protocol
 │   └── flowchart.py        # Recursive descent flowchart parser
-├── ir/
-│   ├── ast.py              # AST dataclasses (Graph, Node, Edge, Subgraph)
+├── syntax/
+│   ├── types.py            # AST dataclasses (Graph, Node, Edge, Subgraph)
 │   └── graph.py            # GraphIR (networkx DiGraph wrapper)
 ├── layout/
 │   ├── engine.py           # Layout convenience functions
@@ -327,3 +327,23 @@ This is a 1:1 port of [mermaid-ascii-rust](https://github.com/HomunMage/mermaid-
 ## License
 
 MIT
+
+
+
+## Reference
+
+  ┌──────────────┬──────────────────────┬──────────────────────┬────────────────────┬────────────────────┬────────────────────────┐
+  │              │      Our Python      │ Rust (ground truth)  │ Go (mermaid-ascii) │ TS (ascii-mermaid) │           D2           │
+  ├──────────────┼──────────────────────┼──────────────────────┼────────────────────┼────────────────────┼────────────────────────┤
+  │ Parser       │ Recursive descent    │ PEG (pest)           │ Regex line-by-line │ Regex line-by-line │ Custom DSL parser      │
+  ├──────────────┼──────────────────────┼──────────────────────┼────────────────────┼────────────────────┼────────────────────────┤
+  │ Layout       │ Sugiyama (full)      │ Sugiyama (full)      │ Grid BFS + A*      │ Grid BFS + A*      │ Dagre (Sugiyama) / ELK │
+  ├──────────────┼──────────────────────┼──────────────────────┼────────────────────┼────────────────────┼────────────────────────┤
+  │ Crossing Min │ Barycenter 24-pass   │ Barycenter 24-pass   │ None               │ None               │ Barycenter (via Dagre) │
+  ├──────────────┼──────────────────────┼──────────────────────┼────────────────────┼────────────────────┼────────────────────────┤
+  │ Edge Routing │ Orthogonal waypoints │ Orthogonal waypoints │ A* pathfinding     │ A* pathfinding     │ Spline curves          │
+  ├──────────────┼──────────────────────┼──────────────────────┼────────────────────┼────────────────────┼────────────────────────┤
+  │ Node Shapes  │ 4                    │ 4                    │ 1 (rect only)      │ 13                 │ Many                   │
+  ├──────────────┼──────────────────────┼──────────────────────┼────────────────────┼────────────────────┼────────────────────────┤
+  │ Target       │ ASCII/Unicode        │ ASCII/Unicode        │ ASCII/Unicode      │ ASCII/Unicode      │ SVG                    │
+  └──────────────┴──────────────────────┴──────────────────────┴────────────────────┴────────────────────┴────────────────────────┘
