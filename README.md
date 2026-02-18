@@ -214,18 +214,19 @@ Multi-phase compiler pipeline. Each phase transforms one representation to the n
           ┌─────────────────────┼─────────────────────┐
           │                     │                     │
           ▼                     ▼                     ▼
-   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-   │  Flowchart   │    │  Sequence    │    │   Class      │
-   │  AST         │    │  AST         │    │   AST        │
-   │  (current)   │    │  (future)    │    │   (future)   │
-   └──────┬───────┘    └──────┬───────┘    └──────┬───────┘
-          │                   │                   │
-          ▼                   ▼                   ▼
-   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-   │  Sugiyama    │    │  Sequence    │    │   Class      │
-   │  Layout      │    │  Layout      │    │   Layout     │
-   │  (current)   │    │  (future)    │    │   (future)   │
-   └──────┬───────┘    └──────┬───────┘    └──────┬───────┘
+   ┌──────────────┐    ┌──────────────┐    ┌────────────────┐
+   │  Flowchart   │    │  Sequence    │    │ Architecture   │
+   │  AST         │    │  AST         │    │ AST            │
+   │  (current)   │    │  (future)    │    │ (future)       │
+   └──────┬───────┘    └──────┬───────┘    └───────┬────────┘
+          │                   │                    │
+          │ graph(Sugiyama)   │ timeline(linear)   │ grid(force)
+          ▼                   ▼                    ▼
+   ┌──────────────┐    ┌──────────────┐    ┌────────────────┐
+   │  Sugiyama    │    │  Sequence    │    │ Architecture   │
+   │  Layout      │    │  Layout      │    │ Layout         │
+   │  (current)   │    │  (future)    │    │ (future)       │
+   └──────┬───────┘    └──────┬───────┘    └───────┬────────┘
           │                   │                   │
           └─────────────┬─────┴───────────────────┘
                         │
