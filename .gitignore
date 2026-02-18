@@ -30,3 +30,4 @@ _ref/
 src/rust/target/
 target/
 pkg/
+_site/

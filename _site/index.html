@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mermaid ASCII</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
+  header { padding: 12px 20px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  .controls { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+  .controls label { font-size: 13px; color: #8b949e; }
+  .controls select, .controls input[type="number"] { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 4px 8px; font-size: 13px; }
+  .controls input[type="number"] { width: 50px; }
+  .controls input[type="checkbox"] { accent-color: #58a6ff; }
+  .main { flex: 1; display: flex; min-height: 0; }
+  .panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .panel-header { padding: 8px 16px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; color: #8b949e; flex-shrink: 0; }
+  .panel-header button { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; transition: background 0.15s; }
+  .panel-header button:hover { background: #30363d; }
+  .panel-header button.copied { background: #238636; border-color: #2ea043; }
+  .divider { width: 1px; background: #30363d; flex-shrink: 0; }
+  textarea { flex: 1; background: #0d1117; color: #c9d1d9; border: none; padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 14px; line-height: 1.5; resize: none; outline: none; }
+  pre { flex: 1; background: #0d1117; padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 14px; line-height: 1.4; overflow: auto; white-space: pre; margin: 0; }
+  .error { color: #f85149; }
+  .loading { color: #8b949e; font-style: italic; }
+  #status { font-size: 12px; color: #8b949e; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Mermaid ASCII</h1>
+  <span id="status" class="loading">Loading WASM...</span>
+  <div class="controls">
+    <label>Direction
+      <select id="direction">
+        <option value="">Auto</option>
+        <option value="TD">TD</option>
+        <option value="LR">LR</option>
+        <option value="BT">BT</option>
+        <option value="RL">RL</option>
+      </select>
+    </label>
+    <label>Padding
+      <input type="number" id="padding" value="1" min="0" max="4">
+    </label>
+    <label><input type="checkbox" id="unicode" checked> Unicode</label>
+  </div>
+</header>
+
+<div class="main">
+  <div class="panel">
+    <div class="panel-header">Mermaid Input</div>
+    <textarea id="input" spellcheck="false">graph TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[OK]
+    B -->|No| D[Cancel]
+    C --> E((End))
+    D --> E</textarea>
+  </div>
+  <div class="divider"></div>
+  <div class="panel">
+    <div class="panel-header">
+      ASCII Output
+      <button id="copy-btn" onclick="copyOutput()">Copy</button>
+    </div>
+    <pre id="output"></pre>
+  </div>
+</div>
+
+<script type="module">
+  import init, { render, renderWithOptions } from './mermaid_ascii.js';
+
+  const inputEl = document.getElementById('input');
+  const outputEl = document.getElementById('output');
+  const statusEl = document.getElementById('status');
+  const directionEl = document.getElementById('direction');
+  const paddingEl = document.getElementById('padding');
+  const unicodeEl = document.getElementById('unicode');
+
+  let ready = false;
+
+  async function load() {
+    try {
+      await init();
+      ready = true;
+      statusEl.textContent = 'Ready';
+      statusEl.classList.remove('loading');
+      doRender();
+    } catch (e) {
+      statusEl.textContent = 'Failed to load WASM';
+      statusEl.classList.add('error');
+      console.error(e);
+    }
+  }
+
+  function doRender() {
+    if (!ready) return;
+    const src = inputEl.value;
+    if (!src.trim()) { outputEl.textContent = ''; return; }
+    try {
+      const unicode = unicodeEl.checked;
+      const padding = parseInt(paddingEl.value, 10) || 1;
+      const direction = directionEl.value;
+      const result = renderWithOptions(src, unicode, padding, direction);
+      outputEl.textContent = result;
+      outputEl.classList.remove('error');
+    } catch (e) {
+      outputEl.textContent = e.message || String(e);
+      outputEl.classList.add('error');
+    }
+  }
+
+  let timer = null;
+  function scheduleRender() {
+    clearTimeout(timer);
+    timer = setTimeout(doRender, 200);
+  }
+
+  inputEl.addEventListener('input', scheduleRender);
+  directionEl.addEventListener('change', doRender);
+  paddingEl.addEventListener('change', doRender);
+  unicodeEl.addEventListener('change', doRender);
+
+  window.copyOutput = function() {
+    const text = outputEl.textContent;
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('copy-btn');
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+    });
+  };
+
+  load();
+</script>
+
+</body>
+</html>
