@@ -15,14 +15,17 @@
   .controls input[type="number"] { width: 50px; }
   .controls input[type="checkbox"] { accent-color: #58a6ff; }
   .main { flex: 1; display: flex; min-height: 0; }
-  .panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+  #left-panel { flex: 1 1 50%; }
+  #right-panel { flex: 1 1 50%; }
   .panel-header { padding: 8px 16px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; color: #8b949e; flex-shrink: 0; }
   .panel-header button { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; transition: background 0.15s; }
   .panel-header button:hover { background: #30363d; }
   .panel-header button.copied { background: #238636; border-color: #2ea043; }
-  .divider { width: 1px; background: #30363d; flex-shrink: 0; }
-  textarea { flex: 1; background: #0d1117; color: #c9d1d9; border: none; padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 14px; line-height: 1.5; resize: none; outline: none; }
-  pre { flex: 1; background: #0d1117; padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 14px; line-height: 1.4; overflow: auto; white-space: pre; margin: 0; }
+  .divider { width: 6px; background: #30363d; flex-shrink: 0; cursor: col-resize; transition: background 0.15s; }
+  .divider:hover, .divider.active { background: #58a6ff; }
+  textarea { flex: 1; background: #0d1117; color: #c9d1d9; border: none; padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 14px; line-height: 1.5; resize: none; outline: none; min-height: 0; }
+  pre { flex: 1; background: #0d1117; padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 14px; line-height: 1.4; overflow: auto; white-space: pre; margin: 0; min-height: 0; }
   .error { color: #f85149; }
   .loading { color: #8b949e; font-style: italic; }
   #status { font-size: 12px; color: #8b949e; }
@@ -34,15 +37,6 @@
   <h1>Mermaid ASCII</h1>
   <span id="status" class="loading">Loading WASM...</span>
   <div class="controls">
-    <label>Direction
-      <select id="direction">
-        <option value="">Auto</option>
-        <option value="TD">TD</option>
-        <option value="LR">LR</option>
-        <option value="BT">BT</option>
-        <option value="RL">RL</option>
-      </select>
-    </label>
     <label>Padding
       <input type="number" id="padding" value="1" min="0" max="4">
     </label>
@@ -51,7 +45,7 @@
 </header>
 
 <div class="main">
-  <div class="panel">
+  <div class="panel" id="left-panel">
     <div class="panel-header">Mermaid Input</div>
     <textarea id="input" spellcheck="false">graph TD
     A[Start] --> B{Decision}
@@ -60,8 +54,8 @@
     C --> E((End))
     D --> E</textarea>
   </div>
-  <div class="divider"></div>
-  <div class="panel">
+  <div class="divider" id="divider"></div>
+  <div class="panel" id="right-panel">
     <div class="panel-header">
       ASCII Output
       <button id="copy-btn" onclick="copyOutput()">Copy</button>
@@ -76,9 +70,11 @@
   const inputEl = document.getElementById('input');
   const outputEl = document.getElementById('output');
   const statusEl = document.getElementById('status');
-  const directionEl = document.getElementById('direction');
   const paddingEl = document.getElementById('padding');
   const unicodeEl = document.getElementById('unicode');
+  const divider = document.getElementById('divider');
+  const leftPanel = document.getElementById('left-panel');
+  const rightPanel = document.getElementById('right-panel');
 
   let ready = false;
 
@@ -103,8 +99,7 @@
     try {
       const unicode = unicodeEl.checked;
       const padding = parseInt(paddingEl.value, 10) || 1;
-      const direction = directionEl.value;
-      const result = renderWithOptions(src, unicode, padding, direction);
+      const result = renderWithOptions(src, unicode, padding, '');
       outputEl.textContent = result;
       outputEl.classList.remove('error');
     } catch (e) {
@@ -120,9 +115,35 @@
   }
 
   inputEl.addEventListener('input', scheduleRender);
-  directionEl.addEventListener('change', doRender);
   paddingEl.addEventListener('change', doRender);
   unicodeEl.addEventListener('change', doRender);
+
+  // Draggable divider
+  let dragging = false;
+  divider.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    divider.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const container = document.querySelector('.main');
+    const rect = container.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const total = rect.width - 6; // divider width
+    const pct = Math.max(15, Math.min(85, (x / rect.width) * 100));
+    leftPanel.style.flex = `0 0 ${pct}%`;
+    rightPanel.style.flex = `0 0 ${100 - pct}%`;
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
 
   window.copyOutput = function() {
     const text = outputEl.textContent;
