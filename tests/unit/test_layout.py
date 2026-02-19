@@ -18,7 +18,6 @@ Phase 6 tests cover:
 Phase 7 tests cover:
   - Point dataclass
   - RoutedEdge dataclass
-  - compute_orthogonal_waypoints
   - route_edges
   - COMPOUND_PREFIX constant
   - CompoundInfo dataclass
@@ -34,7 +33,6 @@ import networkx as nx
 
 from mermaid_ascii.layout.engine import (
     assign_coordinates,
-    compute_orthogonal_waypoints,
     full_layout,
     full_layout_with_padding,
 )
@@ -739,86 +737,6 @@ class TestRoutedEdge:
         wps = [Point(x=i, y=i * 2) for i in range(5)]
         edge = RoutedEdge(from_id="A", to_id="Z", label=None, edge_type=mast.EdgeType.DottedArrow, waypoints=wps)
         assert len(edge.waypoints) == 5
-
-
-# ─── Phase 7: compute_orthogonal_waypoints tests ──────────────────────────────
-
-
-def _make_layout_node(nid: str, layer: int, x: int, y: int, w: int = 5, h: int = 3) -> LayoutNode:
-    return LayoutNode(id=nid, layer=layer, order=0, x=x, y=y, width=w, height=h)
-
-
-class TestComputeOrthogonalWaypoints:
-    def test_adjacent_layers_two_waypoints(self):
-        """Adjacent-layer edge (layer 0 → layer 1): produces at least 2 waypoints (exit + entry)."""
-        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=5, h=3)
-        to_node = _make_layout_node("B", layer=1, x=0, y=6, w=5, h=3)
-        layer_top_y = [0, 6]
-        layer_bottom_y = [3, 9]
-        wps = compute_orthogonal_waypoints(from_node, to_node, layer_top_y, layer_bottom_y, [])
-        assert len(wps) >= 2, "Should have at least exit + entry waypoints"
-
-    def test_first_waypoint_is_exit_of_from_node(self):
-        """First waypoint is at the bottom-center of from_node."""
-        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=6, h=3)
-        to_node = _make_layout_node("B", layer=1, x=0, y=6, w=6, h=3)
-        wps = compute_orthogonal_waypoints(from_node, to_node, [0, 6], [3, 9], [])
-        # exit_x = 0 + 6//2 = 3; exit_y = 0 + 3 - 1 = 2
-        assert wps[0].x == 3
-        assert wps[0].y == 2
-
-    def test_last_waypoint_is_entry_of_to_node(self):
-        """Last waypoint is at the top-center of to_node."""
-        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=6, h=3)
-        to_node = _make_layout_node("B", layer=1, x=4, y=6, w=6, h=3)
-        wps = compute_orthogonal_waypoints(from_node, to_node, [0, 6], [3, 9], [])
-        # entry_x = 4 + 6//2 = 7; entry_y = 6 (top of to_node)
-        assert wps[-1].x == 7
-        assert wps[-1].y == 6
-
-    def test_same_layer_u_shape(self):
-        """Same-layer edge produces a 4-point U-shape going below the layer."""
-        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=5, h=3)
-        to_node = _make_layout_node("B", layer=0, x=10, y=0, w=5, h=3)
-        layer_top_y = [0]
-        layer_bottom_y = [3]
-        wps = compute_orthogonal_waypoints(from_node, to_node, layer_top_y, layer_bottom_y, [])
-        assert len(wps) == 4, "Same-layer edge should produce exactly 4 waypoints"
-        # U-shape: exit → below-left → below-right → entry
-        assert wps[0].y < wps[1].y, "First drop should go down"
-        assert wps[2].y > wps[0].y, "Still below original y before final entry"
-        assert wps[3].y == to_node.y, "Last point lands at top of to_node"
-
-    def test_long_edge_uses_dummy_xs(self):
-        """Edge spanning 2 layers uses provided dummy_xs for horizontal routing."""
-        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=5, h=3)
-        to_node = _make_layout_node("C", layer=2, x=0, y=12, w=5, h=3)
-        layer_top_y = [0, 6, 12]
-        layer_bottom_y = [3, 9, 15]
-        dummy_xs = [8]  # dummy at x=8 in gap between layer 0 and layer 1
-        wps = compute_orthogonal_waypoints(from_node, to_node, layer_top_y, layer_bottom_y, dummy_xs)
-        # Should have more than 2 waypoints to handle the intermediate layer
-        assert len(wps) >= 3
-        # At least one waypoint should be at x=8 (the dummy x position)
-        xs = [w.x for w in wps]
-        assert 8 in xs, f"Expected dummy x=8 in waypoints, got {xs}"
-
-    def test_waypoints_monotonically_increasing_y(self):
-        """For a top-down edge, y coordinates of waypoints should be non-decreasing."""
-        from_node = _make_layout_node("A", layer=0, x=0, y=0, w=5, h=3)
-        to_node = _make_layout_node("B", layer=1, x=0, y=6, w=5, h=3)
-        wps = compute_orthogonal_waypoints(from_node, to_node, [0, 6], [3, 9], [])
-        for i in range(len(wps) - 1):
-            assert wps[i].y <= wps[i + 1].y, f"Y should be non-decreasing: {wps}"
-
-    def test_all_waypoints_non_negative(self):
-        """All waypoint coordinates must be non-negative."""
-        from_node = _make_layout_node("A", layer=0, x=2, y=0, w=5, h=3)
-        to_node = _make_layout_node("B", layer=1, x=2, y=6, w=5, h=3)
-        wps = compute_orthogonal_waypoints(from_node, to_node, [0, 6], [3, 9], [])
-        for wp in wps:
-            assert wp.x >= 0
-            assert wp.y >= 0
 
 
 # ─── Phase 7: route_edges tests ───────────────────────────────────────────────
