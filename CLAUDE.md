@@ -6,9 +6,9 @@ Mermaid flowchart syntax → Parse → Graph layout → ASCII/Unicode text outpu
 Both languages have 1:1 matching module structure and produce identical output.
 
 ## Reference Implementation
-- Old Rust source at `../mermaid-ascii-rust/src/` — logic reference (monolithic layout.rs/render.rs)
+- Reference repos cloned in `_ref/` (gitignored) — logic references
 - Python code at `src/mermaid_ascii/` — the **ground truth** for architecture and module structure
-- Rust code at `src/rust/src/` — must mirror Python's module layout exactly
+- Rust code at `src/rust/` — must mirror Python's module layout exactly
 
 ## Autonomous Mode
 This project runs with autonomous Claude agents. **Never ask the user for permission or clarification. Just work.**
@@ -36,10 +36,10 @@ This project runs with autonomous Claude agents. **Never ask the user for permis
 1. **Implement the smallest possible step** — one function, one struct, one module
 2. **Verify it works**:
    - Python: `uv run python -m pytest`
-   - Rust: `cd src/rust && cargo test && cd ../..`
+   - Rust: `cargo test`
 3. **Lint & format**:
    - Python: `uv run ruff check --fix src/mermaid_ascii/ tests/ && uv run ruff format src/mermaid_ascii/ tests/`
-   - Rust: `cd src/rust && cargo fmt && cargo clippy && cd ../..`
+   - Rust: `cargo fmt && cargo clippy`
 4. **Git commit** — `git add -A && git commit -m "phase N: description" --no-verify`
 5. **Refactor** if code smells — improve names, extract functions, simplify logic
 6. **Verify again** (same as step 2)
@@ -72,11 +72,12 @@ This project runs with autonomous Claude agents. **Never ask the user for permis
 - **Graph**: `petgraph` (DiGraph)
 - **CLI**: `clap` (derive)
 - **Testing**: `cargo test` (unit tests + integration tests for binary)
-- **No other deps** besides petgraph + clap
+- **WASM**: `wasm-bindgen` (optional, for browser playground)
+- **No other deps** besides petgraph + clap + wasm-bindgen
 
 ## Module Mapping (Python ↔ Rust)
 
-| Python (src/mermaid_ascii/)  | Rust (src/rust/src/)          | Purpose                              |
+| Python (src/mermaid_ascii/)  | Rust (src/rust/)              | Purpose                              |
 |------------------------------|-------------------------------|--------------------------------------|
 | `syntax/types.py`            | `syntax/types.rs`             | Enums + AST structs                  |
 | `config.py`                  | `config.rs`                   | RenderConfig                         |
@@ -84,15 +85,17 @@ This project runs with autonomous Claude agents. **Never ask the user for permis
 | `parsers/base.py`            | `parsers/base.rs`             | Parser protocol/trait                |
 | `parsers/flowchart.py`       | `parsers/flowchart.rs`        | Recursive descent parser             |
 | `layout/engine.py`           | `layout/mod.rs`               | full_layout() convenience API        |
-| `layout/graph.py`            | `layout/graph.rs`             | GraphIR (networkx/petgraph)          |
+| `layout/graph.py`            | `layout/graph.rs`             | GraphIR (networkx/petgraph wrapper)  |
 | `layout/sugiyama.py`         | `layout/sugiyama.rs`          | Sugiyama algorithm                   |
-| `layout/types.py`            | `layout/types.rs`             | LayoutNode, RoutedEdge, Point        |
+| `layout/pathfinder.py`       | `layout/pathfinder.rs`        | A* edge routing + occupancy grid     |
+| `layout/types.py`            | `layout/types.rs`             | Layout IR: LayoutResult, LayoutNode, RoutedEdge, Point |
 | `renderers/base.py`          | `renderers/mod.rs`            | Renderer protocol/trait              |
 | `renderers/ascii.py`         | `renderers/ascii.rs`          | ASCII/Unicode renderer               |
 | `renderers/canvas.py`        | `renderers/canvas.rs`         | Canvas 2D char grid                  |
 | `renderers/charset.py`       | `renderers/charset.rs`        | BoxChars, Arms junction merging      |
 | `api.py`                     | `lib.rs`                      | render_dsl() public API              |
 | *(no Python CLI)*            | `main.rs`                     | CLI entry point (Rust only)          |
+| *(N/A)*                      | `wasm.rs`                     | WASM bindings (wasm-bindgen)         |
 
 ## Key Files
 - `Cargo.toml` — Rust metadata, deps, build config
@@ -100,8 +103,8 @@ This project runs with autonomous Claude agents. **Never ask the user for permis
 - `src/mermaid_ascii/` — Python source (library only, no CLI)
 - `src/rust/` — Rust source (lib.rs + main.rs)
 - `tests/unit/` — Python unit tests (pytest)
-- `tests/e2e/` — Python golden file tests (pytest)
-- `tests/test_binary.rs` — Rust integration tests for the compiled binary
+- `tests/e2e/test_examples.py` — Python golden file tests (pytest)
+- `tests/e2e/test_binary.rs` — Rust integration tests for the compiled binary
 - `tests/rust/` — Rust unit test files (included from src via `#[path]`)
 - `examples/` — Shared example DSL files + golden .expect files
 - `scripts/` — Orchestrator/worker agent scripts
@@ -109,7 +112,7 @@ This project runs with autonomous Claude agents. **Never ask the user for permis
 
 ## Pipeline (both languages)
 ```
-Mermaid text → recursive descent parser → AST → GraphIR → Sugiyama layout → edge routing → canvas render → text output
+Mermaid text → parser → AST Graph → GraphIR → Sugiyama layout → Layout IR (LayoutResult) → canvas render → text output
 ```
 
 ## Mermaid Syntax Supported
@@ -137,7 +140,7 @@ graph TD           %% or: flowchart LR / graph BT / etc.
 - Prefer clear names over comments
 - Each module should have a single clear responsibility
 - Three similar lines > premature abstraction
-- Follow the Rust implementation structure as closely as possible
+- Rust follows the Python module structure as closely as possible
 
 ## Linting & Formatting (CRITICAL — run every time before commit)
 

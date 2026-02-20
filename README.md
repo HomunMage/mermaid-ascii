@@ -464,7 +464,7 @@ Sentinel values for min/max:
 │  2. Port changes to Rust (1:1 module match)             │
 │     - Follow the module map below                       │
 │     - Rust must produce identical output                 │
-│     - cd src/rust && cargo test                         │
+│     - cargo test                                        │
 │                                                         │
 │  3. Verify parity                                       │
 │     - E2E tests: uv run python -m pytest tests/e2e/    │
@@ -513,19 +513,20 @@ renderers/canvas.py             renderers/canvas.rs                 —
 renderers/charset.py            renderers/charset.rs                —
 api.py                          lib.rs                              —
 (no Python CLI)                 main.rs                             — (Rust-only CLI)
+(N/A)                           wasm.rs                             — (WASM bindings)
 ```
 
 **Architectural note — Rust AdjGraph**: Rust's `sugiyama.rs` uses a lightweight `AdjGraph` struct (string-based adjacency list) as an intermediate representation for cycle removal, layer assignment, and crossing minimization. This exists because petgraph's index-based API is less ergonomic than networkx's string-keyed API for these algorithms. Python works directly on networkx throughout. The algorithm logic is identical — AdjGraph is a Rust-specific implementation detail that doesn't affect output.
 
 ### Dependencies
 
-**Python:**
+**Python (library only, no CLI):**
 - [networkx](https://networkx.org/) — directed graph (petgraph equivalent)
-- [click](https://click.palletsprojects.com/) — CLI framework
 
-**Rust:**
+**Rust (library + CLI binary):**
 - [petgraph](https://docs.rs/petgraph/) — directed graph (networkx equivalent)
-- [clap](https://docs.rs/clap/) — CLI framework (click equivalent)
+- [clap](https://docs.rs/clap/) — CLI framework
+- [wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/) — WASM bindings (optional)
 
 ### Reference
 
