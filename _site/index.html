@@ -1,196 +1,245 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mermaid ASCII</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html { height: 100%; overflow: hidden; }
-  body { font-family: system-ui, -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-  header { padding: 12px 20px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
-  header h1 { font-size: 18px; font-weight: 600; }
-  .controls { display: flex; gap: 10px; align-items: center; margin-left: auto; }
-  .source-link { font-size: 13px; color: #8b949e; text-decoration: none; display: flex; align-items: center; gap: 6px; transition: color 0.15s; }
-  .source-link:hover { color: #58a6ff; }
-  .source-link svg { fill: currentColor; }
-  .controls label { font-size: 13px; color: #8b949e; }
-  .controls select, .controls input[type="number"] { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 4px 8px; font-size: 13px; }
-  .controls input[type="number"] { width: 50px; }
-  .controls input[type="checkbox"] { accent-color: #58a6ff; }
-  .main { flex: 1; display: flex; min-height: 0; overflow: hidden; }
-  .panel { display: flex; flex-direction: column; min-width: 0; height: 100%; overflow: hidden; }
-  #left-panel { flex: 1 1 50%; }
-  #right-panel { flex: 1 1 50%; }
-  .panel-header { height: 36px; padding: 0 16px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; color: #8b949e; flex-shrink: 0; }
-  .panel-header button { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; transition: background 0.15s; }
-  .panel-header button:hover { background: #30363d; }
-  .panel-header button.copied { background: #238636; border-color: #2ea043; }
-  .divider { width: 6px; background: #30363d; flex-shrink: 0; cursor: col-resize; transition: background 0.15s; }
-  .divider:hover, .divider.active { background: #58a6ff; }
-  textarea { flex: 1; background: #0d1117; color: #c9d1d9; border: none; padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 14px; line-height: 1.5; resize: none; outline: none; min-height: 0; overflow: auto; }
-  pre { flex: 1; background: #0d1117; padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 14px; line-height: 1.4; overflow: auto; white-space: pre; margin: 0; min-height: 0; }
-  .divider { align-self: stretch; }
-  .error { color: #f85149; }
-  .loading { color: #8b949e; font-style: italic; }
-  #status { font-size: 12px; color: #8b949e; }
-</style>
-</head>
-<body>
+<!doctype html>
+<html lang="en" class="h-full overflow-hidden">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Mermaid ASCII</title>
+		<script src="https://cdn.tailwindcss.com"></script>
+		<script>
+			tailwind.config = {
+				theme: {
+					extend: {
+						colors: {
+							bg: '#0d1117',
+							panel: '#161b22',
+							bdr: '#30363d',
+							ctrl: '#21262d',
+							hi: '#58a6ff',
+							err: '#f85149',
+							ok: '#238636',
+							okb: '#2ea043'
+						},
+						fontFamily: {
+							mono: ['"JetBrains Mono"', '"Fira Code"', '"Cascadia Code"', 'monospace']
+						}
+					}
+				}
+			};
+		</script>
+		<style>
+			textarea:focus {
+				outline: none;
+			}
+			::-webkit-scrollbar {
+				width: 6px;
+				height: 6px;
+			}
+			::-webkit-scrollbar-track {
+				background: transparent;
+			}
+			::-webkit-scrollbar-thumb {
+				background: #30363d;
+				border-radius: 3px;
+			}
+		</style>
+	</head>
+	<body class="bg-bg flex h-full flex-col overflow-hidden font-sans text-[#c9d1d9]">
+		<header class="bg-panel border-bdr flex shrink-0 items-center gap-4 border-b px-5 py-3">
+			<h1 class="text-lg font-semibold">Mermaid ASCII</h1>
+			<span id="status" class="text-xs text-[#8b949e] italic">Loading WASM...</span>
+			<a
+				class="hover:text-hi ml-auto flex items-center gap-1.5 text-[13px] text-[#8b949e] no-underline transition-colors"
+				href="https://github.com/HomunMage/mermaid-ascii"
+				target="_blank"
+				rel="noopener"
+			>
+				<svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+					<path
+						d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"
+					/>
+				</svg>
+				https://github.com/HomunMage/mermaid-ascii
+			</a>
+			<div class="flex items-center gap-2.5">
+				<label class="text-[13px] text-[#8b949e]"
+					>Padding
+					<input
+						type="number"
+						id="padding"
+						value="1"
+						min="0"
+						max="4"
+						class="bg-ctrl border-bdr w-[50px] rounded-md border px-2 py-1 text-[13px] text-[#c9d1d9]"
+					/>
+				</label>
+				<label class="text-[13px] text-[#8b949e]"
+					><input type="checkbox" id="unicode" checked class="accent-hi" /> Unicode</label
+				>
+			</div>
+		</header>
 
-<header>
-  <h1>Mermaid ASCII</h1>
-  <span id="status" class="loading">Loading WASM...</span>
-  <a class="source-link" href="https://github.com/HomunMage/mermaid-ascii" target="_blank" rel="noopener">
-    <svg height="16" width="16" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-    https://github.com/HomunMage/mermaid-ascii
-  </a>
-  <div class="controls">
-    <label>Padding
-      <input type="number" id="padding" value="1" min="0" max="4">
-    </label>
-    <label><input type="checkbox" id="unicode" checked> Unicode</label>
-  </div>
-</header>
-
-<div class="main">
-  <div class="panel" id="left-panel">
-    <div class="panel-header">Mermaid Input</div>
-    <textarea id="input" spellcheck="false">graph TD
+		<div class="flex min-h-0 flex-1 overflow-hidden">
+			<div class="flex h-full min-w-0 flex-col overflow-hidden" id="left" style="flex: 1 1 50%">
+				<div
+					class="bg-panel border-bdr flex h-9 shrink-0 items-center border-b px-4 text-[13px] font-semibold text-[#8b949e]"
+				>
+					Mermaid Input
+				</div>
+        <!-- prettier-ignore -->
+        <textarea
+					id="input"
+					spellcheck="false"
+					class="bg-bg min-h-0 flex-1 resize-none overflow-auto border-none p-4 font-mono text-sm leading-normal text-[#c9d1d9]"
+				>
+graph TD
     A[Start] --> B{Decision}
     B -->|Yes| C[OK]
     B -->|No| D[Cancel]
     C --> E((End))
-    D --> E</textarea>
-  </div>
-  <div class="divider" id="divider"></div>
-  <div class="panel" id="right-panel">
-    <div class="panel-header">
-      ASCII Output
-      <button id="copy-btn" onclick="copyOutput()">Copy</button>
-      <button id="svg-btn" onclick="saveSvg()">SVG</button>
-    </div>
-    <pre id="output"></pre>
-  </div>
-</div>
+    D --> E</textarea
+				>
+			</div>
+			<div
+				id="divider"
+				class="bg-bdr hover:bg-hi w-1.5 shrink-0 cursor-col-resize self-stretch transition-colors"
+			></div>
+			<div class="flex h-full min-w-0 flex-col overflow-hidden" id="right" style="flex: 1 1 50%">
+				<div
+					class="bg-panel border-bdr flex h-9 shrink-0 items-center justify-between border-b px-4 text-[13px] font-semibold text-[#8b949e]"
+				>
+					ASCII Output
+					<div class="flex gap-1.5">
+						<button
+							id="copy-btn"
+							onclick="copyOutput()"
+							class="bg-ctrl border-bdr hover:bg-bdr cursor-pointer rounded-md border px-3 py-1 text-xs text-[#c9d1d9] transition-colors"
+						>
+							Copy
+						</button>
+						<button
+							id="svg-btn"
+							onclick="saveSvg()"
+							class="bg-ctrl border-bdr hover:bg-bdr cursor-pointer rounded-md border px-3 py-1 text-xs text-[#c9d1d9] transition-colors"
+						>
+							SVG
+						</button>
+					</div>
+				</div>
+				<pre
+					id="output"
+					class="bg-bg m-0 min-h-0 flex-1 overflow-auto p-4 font-mono text-sm leading-snug whitespace-pre"
+				></pre>
+			</div>
+		</div>
 
-<script type="module">
-  import init, { render, renderWithOptions, renderSvg } from './mermaid_ascii.js';
+		<script type="module">
+			import init, { renderWithOptions, renderSvg } from './mermaid_ascii.js';
 
-  const inputEl = document.getElementById('input');
-  const outputEl = document.getElementById('output');
-  const statusEl = document.getElementById('status');
-  const paddingEl = document.getElementById('padding');
-  const unicodeEl = document.getElementById('unicode');
-  const divider = document.getElementById('divider');
-  const leftPanel = document.getElementById('left-panel');
-  const rightPanel = document.getElementById('right-panel');
+			const $ = (id) => document.getElementById(id);
+			const input = $('input'),
+				output = $('output'),
+				status = $('status');
+			const padding = $('padding'),
+				unicode = $('unicode');
+			const left = $('left'),
+				right = $('right'),
+				divider = $('divider');
+			let ready = false;
 
-  let ready = false;
+			async function load() {
+				try {
+					await init();
+					ready = true;
+					status.textContent = 'Ready';
+					status.style.fontStyle = 'normal';
+					doRender();
+				} catch (e) {
+					status.textContent = 'Failed to load WASM';
+					status.classList.add('text-err');
+					console.error(e);
+				}
+			}
 
-  async function load() {
-    try {
-      await init();
-      ready = true;
-      statusEl.textContent = 'Ready';
-      statusEl.classList.remove('loading');
-      doRender();
-    } catch (e) {
-      statusEl.textContent = 'Failed to load WASM';
-      statusEl.classList.add('error');
-      console.error(e);
-    }
-  }
+			function doRender() {
+				if (!ready) return;
+				const src = input.value.trim();
+				if (!src) {
+					output.textContent = '';
+					return;
+				}
+				try {
+					output.textContent = renderWithOptions(src, unicode.checked, +padding.value || 1, '');
+					output.classList.remove('text-err');
+				} catch (e) {
+					output.textContent = e.message || String(e);
+					output.classList.add('text-err');
+				}
+			}
 
-  function doRender() {
-    if (!ready) return;
-    const src = inputEl.value;
-    if (!src.trim()) { outputEl.textContent = ''; return; }
-    try {
-      const unicode = unicodeEl.checked;
-      const padding = parseInt(paddingEl.value, 10) || 1;
-      const result = renderWithOptions(src, unicode, padding, '');
-      outputEl.textContent = result;
-      outputEl.classList.remove('error');
-    } catch (e) {
-      outputEl.textContent = e.message || String(e);
-      outputEl.classList.add('error');
-    }
-  }
+			let timer;
+			input.addEventListener('input', () => {
+				clearTimeout(timer);
+				timer = setTimeout(doRender, 200);
+			});
+			padding.addEventListener('change', doRender);
+			unicode.addEventListener('change', doRender);
 
-  let timer = null;
-  function scheduleRender() {
-    clearTimeout(timer);
-    timer = setTimeout(doRender, 200);
-  }
+			let dragging = false;
+			divider.addEventListener('mousedown', (e) => {
+				e.preventDefault();
+				dragging = true;
+				divider.classList.replace('bg-bdr', 'bg-hi');
+				document.body.style.cssText = 'cursor:col-resize;user-select:none';
+			});
+			document.addEventListener('mousemove', (e) => {
+				if (!dragging) return;
+				const r = divider.parentElement.getBoundingClientRect();
+				const pct = Math.max(15, Math.min(85, ((e.clientX - r.left) / r.width) * 100));
+				left.style.flex = `0 0 ${pct}%`;
+				right.style.flex = `0 0 ${100 - pct}%`;
+			});
+			document.addEventListener('mouseup', () => {
+				if (!dragging) return;
+				dragging = false;
+				divider.classList.replace('bg-hi', 'bg-bdr');
+				document.body.style.cssText = '';
+			});
 
-  inputEl.addEventListener('input', scheduleRender);
-  paddingEl.addEventListener('change', doRender);
-  unicodeEl.addEventListener('change', doRender);
+			function flash(btn, text) {
+				const orig = btn.textContent;
+				btn.textContent = text;
+				btn.classList.add('bg-ok', 'border-okb', 'text-white');
+				setTimeout(() => {
+					btn.textContent = orig;
+					btn.classList.remove('bg-ok', 'border-okb', 'text-white');
+				}, 1500);
+			}
 
-  // Draggable divider
-  let dragging = false;
-  divider.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    dragging = true;
-    divider.classList.add('active');
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    const container = document.querySelector('.main');
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const total = rect.width - 6; // divider width
-    const pct = Math.max(15, Math.min(85, (x / rect.width) * 100));
-    leftPanel.style.flex = `0 0 ${pct}%`;
-    rightPanel.style.flex = `0 0 ${100 - pct}%`;
-  });
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false;
-    divider.classList.remove('active');
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  });
+			window.copyOutput = () => {
+				if (output.textContent)
+					navigator.clipboard
+						.writeText(output.textContent)
+						.then(() => flash($('copy-btn'), 'Copied!'));
+			};
+			window.saveSvg = () => {
+				if (!ready) return;
+				const src = input.value.trim();
+				if (!src) return;
+				try {
+					const a = document.createElement('a');
+					a.href = URL.createObjectURL(
+						new Blob([renderSvg(src, +padding.value || 1, '')], { type: 'image/svg+xml' })
+					);
+					a.download = 'output.svg';
+					a.click();
+					URL.revokeObjectURL(a.href);
+					flash($('svg-btn'), 'Saved!');
+				} catch (e) {
+					console.error('SVG render failed:', e);
+				}
+			};
 
-  window.copyOutput = function() {
-    const text = outputEl.textContent;
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-      const btn = document.getElementById('copy-btn');
-      btn.textContent = 'Copied!';
-      btn.classList.add('copied');
-      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
-    });
-  };
-
-  window.saveSvg = function() {
-    if (!ready) return;
-    const src = inputEl.value;
-    if (!src.trim()) return;
-    try {
-      const padding = parseInt(paddingEl.value, 10) || 1;
-      const svg = renderSvg(src, padding, '');
-      const blob = new Blob([svg], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'output.svg';
-      a.click();
-      URL.revokeObjectURL(url);
-      const btn = document.getElementById('svg-btn');
-      btn.textContent = 'Saved!';
-      btn.classList.add('copied');
-      setTimeout(() => { btn.textContent = 'SVG'; btn.classList.remove('copied'); }, 1500);
-    } catch (e) {
-      console.error('SVG render failed:', e);
-    }
-  };
-
-  load();
-</script>
-
-</body>
+			load();
+		</script>
+	</body>
 </html>
