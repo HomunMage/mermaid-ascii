@@ -82,4 +82,4 @@ jobs:
         run: uv run ruff check src/mermaid_ascii/ tests/
 
       - name: Python unit + golden tests
-        run: uv run python -m pytest tests/unit/ tests/e2e/test_examples.py -v
+        run: uv run python -m pytest tests/unit/ tests/e2e/test_examples.py tests/e2e/test_svg_parity.py -v

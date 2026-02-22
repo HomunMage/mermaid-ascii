@@ -8,7 +8,7 @@ use std::process;
 
 use clap::Parser;
 
-use mermaid_ascii::render_dsl;
+use mermaid_ascii::{render_dsl, render_svg};
 
 /// Mermaid flowchart to ASCII/Unicode graph output.
 #[derive(Parser, Debug)]
@@ -31,6 +31,10 @@ struct Cli {
     /// Node padding (spaces inside border)
     #[arg(short = 'p', long = "padding", default_value = "1")]
     padding: usize,
+
+    /// Output as SVG instead of text
+    #[arg(long = "svg")]
+    svg: bool,
 
     /// Write output to this file instead of stdout
     #[arg(short = 'o', long = "output")]
@@ -59,13 +63,23 @@ fn main() {
     };
 
     // Render
-    let unicode = !cli.use_ascii;
     let direction = cli.direction.as_deref();
-    let rendered = match render_dsl(&text, unicode, cli.padding, direction) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            process::exit(1);
+    let rendered = if cli.svg {
+        match render_svg(&text, cli.padding, direction) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                process::exit(1);
+            }
+        }
+    } else {
+        let unicode = !cli.use_ascii;
+        match render_dsl(&text, unicode, cli.padding, direction) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                process::exit(1);
+            }
         }
     };
 

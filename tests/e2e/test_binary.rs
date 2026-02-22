@@ -123,6 +123,72 @@ fn test_all_examples_match_expect() {
     }
 }
 
+// ─── SVG golden file tests ──────────────────────────────────────────────
+
+/// Find all (name, mm_file, expect_svg) triples for SVG golden tests.
+fn find_svg_pairs() -> Vec<(String, PathBuf, PathBuf)> {
+    let dir = examples_dir();
+    let mut pairs = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("md")
+                && path.to_string_lossy().ends_with(".mm.md")
+            {
+                let stem = path.file_name().unwrap().to_string_lossy();
+                let name = stem.trim_end_matches(".mm.md").to_string();
+                let expect_svg = dir.join(format!("{}.expect.svg", name));
+                if expect_svg.exists() {
+                    pairs.push((name, path, expect_svg));
+                }
+            }
+        }
+    }
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    pairs
+}
+
+#[test]
+fn test_all_examples_match_expect_svg() {
+    let pairs = find_svg_pairs();
+    assert!(
+        !pairs.is_empty(),
+        "No SVG expect pairs found in {:?}",
+        examples_dir()
+    );
+
+    let mut failures = Vec::new();
+    for (name, mm_file, expect_svg) in &pairs {
+        let src = fs::read_to_string(mm_file)
+            .unwrap_or_else(|e| panic!("Cannot read {:?}: {}", mm_file, e));
+        let expected = fs::read_to_string(expect_svg)
+            .unwrap_or_else(|e| panic!("Cannot read {:?}: {}", expect_svg, e));
+
+        let actual = run_binary(&src, &["--svg"]);
+
+        let expected_trimmed = expected.trim_end_matches('\n');
+        let actual_trimmed = actual.trim_end_matches('\n');
+
+        if actual_trimmed != expected_trimmed {
+            failures.push(format!(
+                "FAIL: {} (expected {} bytes, got {} bytes)",
+                name,
+                expected_trimmed.len(),
+                actual_trimmed.len()
+            ));
+        }
+    }
+
+    if !failures.is_empty() {
+        panic!(
+            "SVG golden file mismatches ({}/{}):\n{}",
+            failures.len(),
+            pairs.len(),
+            failures.join("\n")
+        );
+    }
+}
+
 // ─── Flag tests ─────────────────────────────────────────────────────────────
 
 #[test]

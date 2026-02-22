@@ -68,13 +68,14 @@
     <div class="panel-header">
       ASCII Output
       <button id="copy-btn" onclick="copyOutput()">Copy</button>
+      <button id="svg-btn" onclick="saveSvg()">SVG</button>
     </div>
     <pre id="output"></pre>
   </div>
 </div>
 
 <script type="module">
-  import init, { render, renderWithOptions } from './mermaid_ascii.js';
+  import init, { render, renderWithOptions, renderSvg } from './mermaid_ascii.js';
 
   const inputEl = document.getElementById('input');
   const outputEl = document.getElementById('output');
@@ -163,6 +164,29 @@
       btn.classList.add('copied');
       setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
     });
+  };
+
+  window.saveSvg = function() {
+    if (!ready) return;
+    const src = inputEl.value;
+    if (!src.trim()) return;
+    try {
+      const padding = parseInt(paddingEl.value, 10) || 1;
+      const svg = renderSvg(src, padding, '');
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'output.svg';
+      a.click();
+      URL.revokeObjectURL(url);
+      const btn = document.getElementById('svg-btn');
+      btn.textContent = 'Saved!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'SVG'; btn.classList.remove('copied'); }, 1500);
+    } catch (e) {
+      console.error('SVG render failed:', e);
+    }
   };
 
   load();

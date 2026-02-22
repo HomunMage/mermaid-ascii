@@ -16,7 +16,7 @@ use crate::config::RenderConfig;
 use crate::layout::full_layout_with_config;
 use crate::layout::graph::GraphIR;
 use crate::parsers::parse;
-use crate::renderers::{AsciiRenderer, Renderer};
+use crate::renderers::{AsciiRenderer, Renderer, SvgRenderer};
 use crate::syntax::types::{Direction, Graph as AstGraph};
 
 /// Maps a direction string to the Direction enum.
@@ -61,5 +61,25 @@ pub fn render_dsl(
     };
     let layout_result = full_layout_with_config(&gir, &config);
     let renderer = AsciiRenderer::new(unicode);
+    Ok(renderer.render(&layout_result))
+}
+
+/// Parse a Mermaid flowchart string and render it to SVG.
+///
+/// Mirrors Python's `render_svg()` in api.py.
+pub fn render_svg(src: &str, padding: usize, direction: Option<&str>) -> Result<String, String> {
+    let mut ast_graph = parse(src)?;
+    apply_direction(&mut ast_graph, direction)?;
+    let gir = GraphIR::from_ast(&ast_graph);
+    if gir.node_count() == 0 && gir.subgraph_members.is_empty() {
+        return Ok(String::new());
+    }
+    let config = RenderConfig {
+        unicode: true,
+        padding,
+        direction_override: direction.map(str::to_owned),
+    };
+    let layout_result = full_layout_with_config(&gir, &config);
+    let renderer = SvgRenderer;
     Ok(renderer.render(&layout_result))
 }

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="440" viewBox="0 0 200 440">
+<defs>
+  <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="black"/>
+  </marker>
+  <marker id="arrowhead-rev" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+    <polygon points="10 0, 0 3.5, 10 7" fill="black"/>
+  </marker>
+</defs>
+<rect width="200" height="440" fill="white"/>
+<polyline points="90,100 90,140" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<polyline points="90,240 90,280" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<rect x="20" y="20" width="140" height="80" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text text-anchor="middle" font-family="monospace" font-size="14"><tspan x="90" y="51">Web Server</tspan><tspan x="90" y="67">nginx</tspan></text>
+<rect x="20" y="160" width="140" height="80" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text text-anchor="middle" font-family="monospace" font-size="14"><tspan x="90" y="191">App Server</tspan><tspan x="90" y="207">gunicorn</tspan></text>
+<rect x="20" y="300" width="140" height="80" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text text-anchor="middle" font-family="monospace" font-size="14"><tspan x="90" y="331">Database</tspan><tspan x="90" y="347">PostgreSQL</tspan></text>
+</svg>

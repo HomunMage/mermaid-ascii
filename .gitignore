@@ -33,3 +33,4 @@ pkg/
 _site/*.wasm
 _site/*.js
 !_site/index.html
+*.svg

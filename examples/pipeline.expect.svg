@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="670" height="140" viewBox="0 0 670 140">
+<defs>
+  <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="black"/>
+  </marker>
+  <marker id="arrowhead-rev" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+    <polygon points="10 0, 0 3.5, 10 7" fill="black"/>
+  </marker>
+</defs>
+<rect width="670" height="140" fill="white"/>
+<polyline points="250,40 280,40" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<polyline points="250,40 280,40 280,80 370,80 370,40 400,40" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<polyline points="370,40 400,40" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<polyline points="120,40 150,40" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<polyline points="490,40 520,40" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<rect x="20" y="20" width="100" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="70" y="50" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">Source</text>
+<rect x="160" y="20" width="90" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="205" y="50" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">Build</text>
+<rect x="290" y="20" width="80" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="330" y="50" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">Lint</text>
+<rect x="410" y="20" width="80" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="450" y="50" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">Test</text>
+<rect x="530" y="20" width="100" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="580" y="50" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">Deploy</text>
+</svg>

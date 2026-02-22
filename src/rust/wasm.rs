@@ -29,3 +29,17 @@ pub fn render_with_options(
     };
     crate::render_dsl(src, unicode, padding, dir).map_err(|e| JsError::new(&e))
 }
+
+/// Render Mermaid flowchart DSL to SVG string.
+///
+/// - `padding`: spaces inside node borders
+/// - `direction`: "LR", "RL", "TD", "BT", or empty string for default
+#[wasm_bindgen(js_name = "renderSvg")]
+pub fn render_svg(src: &str, padding: usize, direction: &str) -> Result<String, JsError> {
+    let dir = if direction.is_empty() {
+        None
+    } else {
+        Some(direction)
+    };
+    crate::render_svg(src, padding, dir).map_err(|e| JsError::new(&e))
+}

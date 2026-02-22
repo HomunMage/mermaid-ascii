@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="470" height="260" viewBox="0 0 470 260">
+<defs>
+  <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="black"/>
+  </marker>
+  <marker id="arrowhead-rev" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+    <polygon points="10 0, 0 3.5, 10 7" fill="black"/>
+  </marker>
+</defs>
+<rect width="470" height="260" fill="white"/>
+<polyline points="40,80 40,120" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<polyline points="130,80 130,120" fill="none" stroke="black" stroke-width="1.5" />
+<polyline points="220,80 220,120" fill="none" stroke="black" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowhead)"/>
+<polyline points="310,80 310,120" fill="none" stroke="black" stroke-width="1.5" stroke-width="3" marker-end="url(#arrowhead)"/>
+<polyline points="400,80 400,120" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)" marker-start="url(#arrowhead-rev)"/>
+<rect x="20" y="20" width="50" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="45" y="50" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">A</text>
+<rect x="110" y="20" width="50" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="135" y="50" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">C</text>
+<rect x="200" y="20" width="50" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="225" y="50" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">E</text>
+<rect x="290" y="20" width="50" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="315" y="50" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">G</text>
+<rect x="380" y="20" width="50" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="405" y="50" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">I</text>
+<rect x="20" y="140" width="50" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="45" y="170" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">B</text>
+<rect x="110" y="140" width="50" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="135" y="170" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">D</text>
+<rect x="200" y="140" width="50" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="225" y="170" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">F</text>
+<rect x="290" y="140" width="50" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="315" y="170" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">H</text>
+<rect x="380" y="140" width="50" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="405" y="170" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">J</text>
+</svg>

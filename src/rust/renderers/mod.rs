@@ -5,8 +5,10 @@
 pub mod ascii;
 pub mod canvas;
 pub mod charset;
+pub mod svg;
 
 pub use ascii::AsciiRenderer;
+pub use svg::SvgRenderer;
 
 use crate::layout::types::LayoutResult;
 
