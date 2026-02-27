@@ -1,12 +1,12 @@
-//! dep/graph.rs — petgraph DiGraph wrapper with free-function API.
-//!
-//! Exposes a free-function style API that mirrors the .hom convention
-//! (no methods, only free functions operating on a plain struct).
-//!
-//! .hom modules import this via `use graph` and call:
-//!   graph_new(), graph_add_node(), graph_add_edge(), graph_topo_sort(), …
-//!
-//! Wraps petgraph::graph::DiGraph internally.
+// graph.rs — petgraph DiGraph wrapper with free-function API.
+//
+// Exposes a free-function style API that mirrors the .hom convention
+// (no methods, only free functions operating on a plain struct).
+//
+// .hom modules import this via `use graph` and call:
+//   graph_new(), graph_add_node(), graph_add_edge(), graph_topo_sort(), …
+//
+// Wraps petgraph::graph::DiGraph internally.
 
 use std::collections::HashMap;
 

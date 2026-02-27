@@ -115,7 +115,7 @@
 //   DegMap helper
 //     deg_map_sorted_keys(dm)                  -> StrList   (sorted alphabetically)
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 // ── DegMap ────────────────────────────────────────────────────────────────────
 

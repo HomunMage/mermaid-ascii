@@ -83,12 +83,10 @@
 //                          MutableGraph, EdgeInfoList, gw_* wrappers, fas_*
 
 use graph
-use layout_state
 // Language note: importing grid_data (an existing dep .rs file) sets
 // has_rs_dep=true in the homunc sema checker, switching to skip_undef mode
 // so that functions from graph.rs and layout_state.rs are not flagged as
 // undefined.  grid_data.rs is a zero-impact dep (no name clashes).
-use grid_data
 
 
 // ── Layout geometry constants ─────────────────────────────────────────────────

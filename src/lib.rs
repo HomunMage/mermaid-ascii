@@ -14,8 +14,8 @@
 //!   mod layout;         // Sugiyama 8-phase algorithm
 //!   mod render;         // ASCII renderer 7 phases
 
-// dep/ — hand-written Rust helper modules
-#[path = "dep/graph.rs"]
+// graph/ — hand-written Rust helper modules (petgraph wrapper + mutable state types)
+#[path = "graph/mod.rs"]
 pub mod graph;
 
 // Generated .hom modules live in OUT_DIR. Uncomment as they compile cleanly.
