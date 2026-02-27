@@ -26,8 +26,19 @@ out/
 *.log
 _ref/
 
+# Generated .rs from homunc (build.rs compiles .hom → .rs at build time)
+# Do NOT commit these — they are build artifacts
+src/types.rs
+src/config.rs
+src/layout_types.rs
+src/parser.rs
+src/layout.rs
+src/pathfinder.rs
+src/charset.rs
+src/canvas.rs
+src/render.rs
+
 # Rust build artifacts
-src/rust/target/
 target/
 pkg/
 _site/*.wasm

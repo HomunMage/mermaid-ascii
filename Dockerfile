@@ -25,8 +25,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
     wget -q "https://github.com/HomunMage/Homun-Lang/releases/latest/download/homunc-linux-${HOMUNC_ARCH}" -O /usr/local/bin/homunc \
     && chmod +x /usr/local/bin/homunc \
     || true
-RUN find src -name '*.hom' -exec sh -c 'homunc --raw "$1" -o "${1%.hom}.rs"' _ {} \; 2>/dev/null || true
-
+# build.rs will use homunc from PATH to compile .hom → OUT_DIR/*.rs
 RUN cargo build --release --target ${TARGET}
 
 FROM scratch AS export
