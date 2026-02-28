@@ -42,7 +42,8 @@ fn generate_runtime() {
 
     // std/ — standard library (str, math, collection, dict, stack, deque, io)
     // Read mod.rs but strip include!() lines (we inline the sub-files directly)
-    let std_mod: String = std::fs::read_to_string(hom.join("std/mod.rs")).unwrap()
+    let std_mod: String = std::fs::read_to_string(hom.join("std/mod.rs"))
+        .unwrap()
         .lines()
         .filter(|l| !l.trim().starts_with("include!("))
         .collect::<Vec<_>>()
@@ -58,7 +59,8 @@ fn generate_runtime() {
     // re.rs — regex helpers
     let re = std::fs::read_to_string(hom.join("re.rs")).unwrap();
     // heap.rs — BinaryHeap helpers (strip only duplicate RefCell import)
-    let heap: String = std::fs::read_to_string(hom.join("heap.rs")).unwrap()
+    let heap: String = std::fs::read_to_string(hom.join("heap.rs"))
+        .unwrap()
         .lines()
         .filter(|l| l.trim() != "use std::cell::RefCell;")
         .collect::<Vec<_>>()
@@ -80,7 +82,10 @@ fn generate_runtime() {
     let code = strip_test_modules(&code);
 
     std::fs::write(&runtime_path, &code).unwrap();
-    println!("cargo:warning=Generated runtime.rs ({} bytes) from src/hom/", code.len());
+    println!(
+        "cargo:warning=Generated runtime.rs ({} bytes) from src/hom/",
+        code.len()
+    );
 
     // Rerun if any hom runtime file changes
     println!("cargo:rerun-if-changed=src/hom/builtin.rs");
@@ -100,20 +105,21 @@ fn find_homunc() -> PathBuf {
     }
     // Download from GitHub releases
     std::fs::create_dir_all(".tmp").unwrap();
-    let url = "https://github.com/HomunMage/Homun-Lang/releases/latest/download/homunc-linux-x86_64";
+    let url =
+        "https://github.com/HomunMage/Homun-Lang/releases/latest/download/homunc-linux-x86_64";
     let status = Command::new("wget")
         .args(["-q", url, "-O", local.to_str().unwrap()])
         .status();
-    if let Ok(s) = status {
-        if s.success() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&local, std::fs::Permissions::from_mode(0o755)).unwrap();
-            }
-            println!("cargo:warning=Downloaded homunc to .tmp/homunc");
-            return local;
+    if let Ok(s) = status
+        && s.success()
+    {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&local, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        println!("cargo:warning=Downloaded homunc to .tmp/homunc");
+        return local;
     }
     panic!("Cannot find or download homunc");
 }
@@ -165,14 +171,12 @@ fn compile_hom_files() {
                     Ok(s) => {
                         println!(
                             "cargo:warning=homunc failed for {} (exit code {:?})",
-                            path.display(), s.code()
+                            path.display(),
+                            s.code()
                         );
                     }
                     Err(e) => {
-                        println!(
-                            "cargo:warning=homunc error for {}: {}",
-                            path.display(), e
-                        );
+                        println!("cargo:warning=homunc error for {}: {}", path.display(), e);
                     }
                 }
             }
@@ -190,23 +194,23 @@ fn strip_test_modules(src: &str) -> String {
         let trimmed = line.trim();
         if trimmed == "#[cfg(test)]" {
             // Peek: if next non-empty line starts with "mod tests", skip the whole block
-            if let Some(&next) = lines.peek() {
-                if next.trim().starts_with("mod tests") {
-                    // Skip the #[cfg(test)] line and the mod tests { ... } block
-                    let mod_line = lines.next().unwrap();
-                    // Count braces to find the matching close
-                    let mut depth: i32 = mod_line.chars().filter(|&c| c == '{').count() as i32
-                        - mod_line.chars().filter(|&c| c == '}').count() as i32;
-                    while depth > 0 {
-                        if let Some(inner) = lines.next() {
-                            depth += inner.chars().filter(|&c| c == '{').count() as i32;
-                            depth -= inner.chars().filter(|&c| c == '}').count() as i32;
-                        } else {
-                            break;
-                        }
+            if let Some(&next) = lines.peek()
+                && next.trim().starts_with("mod tests")
+            {
+                // Skip the #[cfg(test)] line and the mod tests { ... } block
+                let mod_line = lines.next().unwrap();
+                // Count braces to find the matching close
+                let mut depth: i32 = mod_line.chars().filter(|&c| c == '{').count() as i32
+                    - mod_line.chars().filter(|&c| c == '}').count() as i32;
+                while depth > 0 {
+                    if let Some(inner) = lines.next() {
+                        depth += inner.chars().filter(|&c| c == '{').count() as i32;
+                        depth -= inner.chars().filter(|&c| c == '}').count() as i32;
+                    } else {
+                        break;
                     }
-                    continue;
                 }
+                continue;
             }
         }
         result.push_str(line);

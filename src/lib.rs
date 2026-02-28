@@ -3,15 +3,49 @@
 //! .hom source files are compiled to .rs by build.rs → homunc into OUT_DIR.
 //! Hand-written Rust helpers live in graph/.
 
-#![allow(unused_variables, unused_mut, dead_code, unused_imports, unused_macros, unused_assignments)]
+#![allow(
+    unused_variables,
+    unused_mut,
+    dead_code,
+    unused_imports,
+    unused_macros,
+    unused_assignments
+)]
 #![allow(non_snake_case)]
+#![allow(
+    clippy::clone_on_copy,
+    clippy::redundant_field_names,
+    clippy::assign_op_pattern,
+    clippy::no_effect,
+    clippy::unused_unit,
+    clippy::needless_return,
+    clippy::collapsible_if,
+    clippy::collapsible_else_if,
+    clippy::ptr_arg,
+    clippy::comparison_to_empty,
+    clippy::redundant_clone,
+    clippy::inherent_to_string,
+    clippy::useless_conversion,
+    clippy::unnecessary_to_owned,
+    clippy::too_many_arguments,
+    clippy::redundant_closure,
+    clippy::bool_comparison,
+    clippy::while_immutable_condition,
+    clippy::identity_op,
+    clippy::almost_swapped,
+    clippy::needless_borrow,
+    clippy::op_ref,
+    clippy::iter_overeager_cloned
+)]
 
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
 // ── Homun runtime (builtin + std + re + heap) ──────────────────────────────
 #[macro_use]
-pub mod runtime { include!(concat!(env!("OUT_DIR"), "/runtime.rs")); }
+pub mod runtime {
+    include!(concat!(env!("OUT_DIR"), "/runtime.rs"));
+}
 
 // graph/ — hand-written Rust helper modules (petgraph wrapper + mutable state types)
 #[path = "graph/mod.rs"]
@@ -65,14 +99,23 @@ mod rust_parser {
 
     impl Cursor {
         fn new(s: &str) -> Self {
-            Cursor { src: s.chars().collect(), pos: 0 }
+            Cursor {
+                src: s.chars().collect(),
+                pos: 0,
+            }
         }
-        fn eof(&self) -> bool { self.pos >= self.src.len() }
+        fn eof(&self) -> bool {
+            self.pos >= self.src.len()
+        }
         fn peek_str(&self, s: &str) -> bool {
             let chars: Vec<char> = s.chars().collect();
-            if self.pos + chars.len() > self.src.len() { return false; }
+            if self.pos + chars.len() > self.src.len() {
+                return false;
+            }
             for (i, ch) in chars.iter().enumerate() {
-                if self.src[self.pos + i] != *ch { return false; }
+                if self.src[self.pos + i] != *ch {
+                    return false;
+                }
             }
             true
         }
@@ -115,9 +158,11 @@ mod rust_parser {
         }
         fn consume_newline(&mut self) -> bool {
             if self.peek_str("\r\n") {
-                self.pos += 2; true
+                self.pos += 2;
+                true
             } else if self.pos < self.src.len() && (self.ch() == '\n' || self.ch() == '\r') {
-                self.pos += 1; true
+                self.pos += 1;
+                true
             } else {
                 false
             }
@@ -132,9 +177,7 @@ mod rust_parser {
                     self.pos += 1;
                 }
                 // Backtrack trailing hyphens/dots/equals that could be edge connectors
-                while self.pos > start + 1
-                    && matches!(self.src[self.pos - 1], '-' | '.' | '=')
-                {
+                while self.pos > start + 1 && matches!(self.src[self.pos - 1], '-' | '.' | '=') {
                     self.pos -= 1;
                 }
                 self.src[start..self.pos].iter().collect()
@@ -145,11 +188,17 @@ mod rust_parser {
     }
 
     fn parse_direction(c: &mut Cursor) -> parser::Direction {
-        if c.consume_str("TD") || c.consume_str("TB") { parser::Direction::TD }
-        else if c.consume_str("LR") { parser::Direction::LR }
-        else if c.consume_str("RL") { parser::Direction::RL }
-        else if c.consume_str("BT") { parser::Direction::BT }
-        else { parser::Direction::TD }
+        if c.consume_str("TD") || c.consume_str("TB") {
+            parser::Direction::TD
+        } else if c.consume_str("LR") {
+            parser::Direction::LR
+        } else if c.consume_str("RL") {
+            parser::Direction::RL
+        } else if c.consume_str("BT") {
+            parser::Direction::BT
+        } else {
+            parser::Direction::TD
+        }
     }
 
     fn parse_quoted_string(c: &mut Cursor) -> String {
@@ -170,7 +219,9 @@ mod rust_parser {
                 c.pos += 1;
             }
         }
-        if !c.eof() { c.pos += 1; } // skip closing "
+        if !c.eof() {
+            c.pos += 1;
+        } // skip closing "
         buf
     }
 
@@ -183,7 +234,11 @@ mod rust_parser {
         while !c.eof() && !closers.contains(&c.ch()) && c.ch() != '\n' {
             c.pos += 1;
         }
-        c.src[start..c.pos].iter().collect::<String>().trim().to_string()
+        c.src[start..c.pos]
+            .iter()
+            .collect::<String>()
+            .trim()
+            .to_string()
     }
 
     fn parse_node_shape(c: &mut Cursor) -> (bool, parser::NodeShape, String) {
@@ -228,15 +283,42 @@ mod rust_parser {
     }
 
     const EDGE_PATTERNS: &[EdgeMatch] = &[
-        EdgeMatch { token: "<-.->", etype: parser::EdgeType::BidirDotted },
-        EdgeMatch { token: "<==>", etype: parser::EdgeType::BidirThick },
-        EdgeMatch { token: "<-->", etype: parser::EdgeType::BidirArrow },
-        EdgeMatch { token: "-.->", etype: parser::EdgeType::DottedArrow },
-        EdgeMatch { token: "==>", etype: parser::EdgeType::ThickArrow },
-        EdgeMatch { token: "-->", etype: parser::EdgeType::Arrow },
-        EdgeMatch { token: "-.-", etype: parser::EdgeType::DottedLine },
-        EdgeMatch { token: "===", etype: parser::EdgeType::ThickLine },
-        EdgeMatch { token: "---", etype: parser::EdgeType::Line },
+        EdgeMatch {
+            token: "<-.->",
+            etype: parser::EdgeType::BidirDotted,
+        },
+        EdgeMatch {
+            token: "<==>",
+            etype: parser::EdgeType::BidirThick,
+        },
+        EdgeMatch {
+            token: "<-->",
+            etype: parser::EdgeType::BidirArrow,
+        },
+        EdgeMatch {
+            token: "-.->",
+            etype: parser::EdgeType::DottedArrow,
+        },
+        EdgeMatch {
+            token: "==>",
+            etype: parser::EdgeType::ThickArrow,
+        },
+        EdgeMatch {
+            token: "-->",
+            etype: parser::EdgeType::Arrow,
+        },
+        EdgeMatch {
+            token: "-.-",
+            etype: parser::EdgeType::DottedLine,
+        },
+        EdgeMatch {
+            token: "===",
+            etype: parser::EdgeType::ThickLine,
+        },
+        EdgeMatch {
+            token: "---",
+            etype: parser::EdgeType::Line,
+        },
     ];
 
     fn parse_edge_connector(c: &mut Cursor) -> parser::EdgeType {
@@ -251,7 +333,9 @@ mod rust_parser {
 
     fn parse_edge_label(c: &mut Cursor) -> String {
         c.skip_ws();
-        if !c.consume_str("|") { return String::new(); }
+        if !c.consume_str("|") {
+            return String::new();
+        }
         let start = c.pos;
         while !c.eof() && c.ch() != '|' && c.ch() != '\n' {
             c.pos += 1;
@@ -262,9 +346,13 @@ mod rust_parser {
     }
 
     fn at_end_keyword(c: &Cursor) -> bool {
-        if !c.peek_str("end") { return false; }
+        if !c.peek_str("end") {
+            return false;
+        }
         let after = c.pos + 3;
-        if after >= c.src.len() { return true; }
+        if after >= c.src.len() {
+            return true;
+        }
         let ch = c.src[after];
         !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
     }
@@ -276,7 +364,9 @@ mod rust_parser {
         subgraphs: &mut Vec<parser::Subgraph>,
     ) -> bool {
         c.skip_ws();
-        if c.eof() { return false; }
+        if c.eof() {
+            return false;
+        }
 
         // Try subgraph
         let saved = c.pos;
@@ -361,7 +451,11 @@ mod rust_parser {
             while !c.eof() && c.ch() != '\n' && c.ch() != '\r' {
                 c.pos += 1;
             }
-            c.src[start..c.pos].iter().collect::<String>().trim().to_string()
+            c.src[start..c.pos]
+                .iter()
+                .collect::<String>()
+                .trim()
+                .to_string()
         };
         c.skip_ws();
         c.consume_newline();
@@ -412,7 +506,9 @@ mod rust_parser {
         c.skip_ws();
         // skip optional trailing comment
         if c.peek_str("%%") {
-            while !c.eof() && c.ch() != '\n' { c.pos += 1; }
+            while !c.eof() && c.ch() != '\n' {
+                c.pos += 1;
+            }
         }
         c.skip_ws();
         c.consume_newline();
@@ -428,9 +524,8 @@ mod rust_parser {
             c.skip_ws();
             if !c.eof() {
                 if !c.consume_newline() {
-                    let ok = parse_statement_into(
-                        &mut c, &mut g.nodes, &mut g.edges, &mut g.subgraphs,
-                    );
+                    let ok =
+                        parse_statement_into(&mut c, &mut g.nodes, &mut g.edges, &mut g.subgraphs);
                     if !ok {
                         c.pos += 1;
                     }
@@ -473,8 +568,18 @@ fn ast_to_graph(parsed: &parser::Graph) -> graph::Graph {
         graph::graph_add_node(&mut g, &node.id, &node.label, shape_str(&node.shape), None);
     }
     for edge in &parsed.edges {
-        let label = if edge.label.is_empty() { None } else { Some(edge.label.as_str()) };
-        graph::graph_add_edge(&mut g, &edge.from_id, &edge.to_id, etype_str(&edge.edge_type), label);
+        let label = if edge.label.is_empty() {
+            None
+        } else {
+            Some(edge.label.as_str())
+        };
+        graph::graph_add_edge(
+            &mut g,
+            &edge.from_id,
+            &edge.to_id,
+            etype_str(&edge.edge_type),
+            label,
+        );
     }
 
     fn add_sg(g: &mut graph::Graph, sg: &parser::Subgraph) {
@@ -504,7 +609,11 @@ fn ast_to_graph(parsed: &parser::Graph) -> graph::Graph {
             graph::graph_add_node(g, &node.id, &node.label, sh(&node.shape), Some(&sg.name));
         }
         for edge in &sg.edges {
-            let label = if edge.label.is_empty() { None } else { Some(edge.label.as_str()) };
+            let label = if edge.label.is_empty() {
+                None
+            } else {
+                Some(edge.label.as_str())
+            };
             graph::graph_add_edge(g, &edge.from_id, &edge.to_id, et(&edge.edge_type), label);
         }
         for nested in &sg.subgraphs {
@@ -566,7 +675,13 @@ fn remove_cycles_rust(g: &graph::Graph) -> (graph::Graph, Vec<(String, String)>)
     for node in &nodes {
         let idx = g.node_index[node];
         let nd = &g.digraph[idx];
-        graph::graph_add_node(&mut dag, &nd.id, &nd.label, &nd.shape, nd.subgraph.as_deref());
+        graph::graph_add_node(
+            &mut dag,
+            &nd.id,
+            &nd.label,
+            &nd.shape,
+            nd.subgraph.as_deref(),
+        );
     }
 
     let back_set: HashSet<(String, String)> = back_edges.iter().cloned().collect();
@@ -577,9 +692,21 @@ fn remove_cycles_rust(g: &graph::Graph) -> (graph::Graph, Vec<(String, String)>)
         let ed = &g.digraph[eidx];
         if back_set.contains(&(from_id.clone(), to_id.clone())) {
             // Reverse this edge
-            graph::graph_add_edge(&mut dag, &to_id, &from_id, &ed.edge_type, ed.label.as_deref());
+            graph::graph_add_edge(
+                &mut dag,
+                &to_id,
+                &from_id,
+                &ed.edge_type,
+                ed.label.as_deref(),
+            );
         } else {
-            graph::graph_add_edge(&mut dag, &from_id, &to_id, &ed.edge_type, ed.label.as_deref());
+            graph::graph_add_edge(
+                &mut dag,
+                &from_id,
+                &to_id,
+                &ed.edge_type,
+                ed.label.as_deref(),
+            );
         }
     }
 
@@ -606,10 +733,7 @@ fn assign_layers_rust(g: &graph::Graph) -> HashMap<String, i32> {
 }
 
 /// Phase 3-4: Build layer ordering (group nodes by layer, sort within layer).
-fn build_ordering(
-    g: &graph::Graph,
-    layers: &HashMap<String, i32>,
-) -> Vec<Vec<String>> {
+fn build_ordering(g: &graph::Graph, layers: &HashMap<String, i32>) -> Vec<Vec<String>> {
     let max_layer = layers.values().max().copied().unwrap_or(0);
     let mut layer_groups: Vec<Vec<String>> = vec![vec![]; (max_layer + 1) as usize];
     for (id, &layer) in layers {
@@ -623,38 +747,52 @@ fn build_ordering(
         // Forward pass: order layer[i] by average position of predecessors in layer[i-1]
         for li in 1..layer_groups.len() {
             let prev_positions: HashMap<String, f64> = layer_groups[li - 1]
-                .iter().enumerate()
+                .iter()
+                .enumerate()
                 .map(|(i, id)| (id.clone(), i as f64))
                 .collect();
-            let mut scored: Vec<(String, f64)> = layer_groups[li].iter().map(|id| {
-                let preds = graph::graph_predecessors(g, id);
-                let positions: Vec<f64> = preds.iter()
-                    .filter_map(|p| prev_positions.get(p).copied())
-                    .collect();
-                let avg = if positions.is_empty() { 0.0 } else {
-                    positions.iter().sum::<f64>() / positions.len() as f64
-                };
-                (id.clone(), avg)
-            }).collect();
+            let mut scored: Vec<(String, f64)> = layer_groups[li]
+                .iter()
+                .map(|id| {
+                    let preds = graph::graph_predecessors(g, id);
+                    let positions: Vec<f64> = preds
+                        .iter()
+                        .filter_map(|p| prev_positions.get(p).copied())
+                        .collect();
+                    let avg = if positions.is_empty() {
+                        0.0
+                    } else {
+                        positions.iter().sum::<f64>() / positions.len() as f64
+                    };
+                    (id.clone(), avg)
+                })
+                .collect();
             scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             layer_groups[li] = scored.into_iter().map(|(id, _)| id).collect();
         }
         // Backward pass: order layer[i] by average position of successors in layer[i+1]
         for li in (0..layer_groups.len().saturating_sub(1)).rev() {
             let next_positions: HashMap<String, f64> = layer_groups[li + 1]
-                .iter().enumerate()
+                .iter()
+                .enumerate()
                 .map(|(i, id)| (id.clone(), i as f64))
                 .collect();
-            let mut scored: Vec<(String, f64)> = layer_groups[li].iter().map(|id| {
-                let succs = graph::graph_successors(g, id);
-                let positions: Vec<f64> = succs.iter()
-                    .filter_map(|s| next_positions.get(s).copied())
-                    .collect();
-                let avg = if positions.is_empty() { 0.0 } else {
-                    positions.iter().sum::<f64>() / positions.len() as f64
-                };
-                (id.clone(), avg)
-            }).collect();
+            let mut scored: Vec<(String, f64)> = layer_groups[li]
+                .iter()
+                .map(|id| {
+                    let succs = graph::graph_successors(g, id);
+                    let positions: Vec<f64> = succs
+                        .iter()
+                        .filter_map(|s| next_positions.get(s).copied())
+                        .collect();
+                    let avg = if positions.is_empty() {
+                        0.0
+                    } else {
+                        positions.iter().sum::<f64>() / positions.len() as f64
+                    };
+                    (id.clone(), avg)
+                })
+                .collect();
             scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             layer_groups[li] = scored.into_iter().map(|(id, _)| id).collect();
         }
@@ -694,7 +832,9 @@ fn assign_coordinates_rust(
             let label_h = std::cmp::max(nd.label.lines().count() as i32, 1);
             let w = std::cmp::max(label_w + 2 + 2 * padding, 5);
             let h = std::cmp::max(label_h + 2, min_node_h);
-            if h > layer_max_h { layer_max_h = h; }
+            if h > layer_max_h {
+                layer_max_h = h;
+            }
             dims.push((w, h));
         }
         // Second pass: place nodes
@@ -704,8 +844,16 @@ fn assign_coordinates_rust(
             let idx = g.node_index[node_id];
             let nd = &g.digraph[idx];
             graph::nll_push(
-                nll.clone(), node_id.clone(), layer_idx as i32, i as i32,
-                x_offset, y_offset, w, h, nd.label.clone(), nd.shape.clone(),
+                nll.clone(),
+                node_id.clone(),
+                layer_idx as i32,
+                i as i32,
+                x_offset,
+                y_offset,
+                w,
+                h,
+                nd.label.clone(),
+                nd.shape.clone(),
             );
             x_offset += w + h_gap;
         }
@@ -749,8 +897,12 @@ fn route_edges_rust(
     for i in 0..nn {
         let rx = graph::nll_get_x(nodes.clone(), i) + graph::nll_get_width(nodes.clone(), i) + 10;
         let ry = graph::nll_get_y(nodes.clone(), i) + graph::nll_get_height(nodes.clone(), i) + 10;
-        if rx > max_x { max_x = rx; }
-        if ry > max_y { max_y = ry; }
+        if rx > max_x {
+            max_x = rx;
+        }
+        if ry > max_y {
+            max_y = ry;
+        }
     }
 
     let grid = pathfinder::grid_new(max_x, max_y);
@@ -771,7 +923,9 @@ fn route_edges_rust(
         let from_id = g.digraph[a].id.clone();
         let to_id = g.digraph[b].id.clone();
         let ed = &g.digraph[eidx];
-        if from_id == to_id { continue; }
+        if from_id == to_id {
+            continue;
+        }
 
         let is_rev = reversed_set.contains(&(from_id.clone(), to_id.clone()));
         let (vis_from, vis_to) = if is_rev {
@@ -782,7 +936,9 @@ fn route_edges_rust(
 
         let from_idx = graph::nll_id_to_index(nodes.clone(), vis_from.clone());
         let to_idx = graph::nll_id_to_index(nodes.clone(), vis_to.clone());
-        if from_idx < 0 || to_idx < 0 { continue; }
+        if from_idx < 0 || to_idx < 0 {
+            continue;
+        }
 
         let exit_x = graph::nll_get_x(nodes.clone(), from_idx)
             + graph::nll_get_width(nodes.clone(), from_idx) / 2;
@@ -809,7 +965,14 @@ fn route_edges_rust(
         };
 
         let label = ed.label.clone().unwrap_or_default();
-        graph::erl_push(routes.clone(), vis_from, vis_to, label, ed.edge_type.clone(), waypoints);
+        graph::erl_push(
+            routes.clone(),
+            vis_from,
+            vis_to,
+            label,
+            ed.edge_type.clone(),
+            waypoints,
+        );
     }
 
     routes
@@ -857,7 +1020,9 @@ fn cwrite_str(c: &mut canvas::Canvas, col: i32, row: i32, s: &str) {
 }
 
 fn cdraw_box(c: &mut canvas::Canvas, x: i32, y: i32, w: i32, h: i32, bc: &canvas::BoxChars) {
-    if w < 2 || h < 2 { return; }
+    if w < 2 || h < 2 {
+        return;
+    }
     let x1 = x + w - 1;
     let y1 = y + h - 1;
     cset(c, x, y, bc.top_left.clone());
@@ -876,11 +1041,7 @@ fn cdraw_box(c: &mut canvas::Canvas, x: i32, y: i32, w: i32, h: i32, bc: &canvas
 
 // ── Renderer helpers ────────────────────────────────────────────────────────
 
-fn paint_node(
-    c: &mut canvas::Canvas,
-    x: i32, y: i32, w: i32, h: i32,
-    label: &str, shape: &str,
-) {
+fn paint_node(c: &mut canvas::Canvas, x: i32, y: i32, w: i32, h: i32, label: &str, shape: &str) {
     let cs = c.charset.clone();
     let bc = match shape {
         "Rounded" => canvas::box_chars_rounded(cs),
@@ -901,13 +1062,10 @@ fn paint_node(
     }
 }
 
-fn paint_edge(
-    c: &mut canvas::Canvas,
-    waypoints: &[(i32, i32)],
-    edge_type: &str,
-    label: &str,
-) {
-    if waypoints.len() < 2 { return; }
+fn paint_edge(c: &mut canvas::Canvas, waypoints: &[(i32, i32)], edge_type: &str, label: &str) {
+    if waypoints.len() < 2 {
+        return;
+    }
 
     let cs = c.charset.clone();
     let bc = canvas::box_chars_for_charset(cs.clone());
@@ -935,46 +1093,77 @@ fn paint_edge(
     for i in 0..waypoints.len() {
         let (px, py) = waypoints[i];
         let mut arms = canvas::Arms {
-            valid: true, up: false, down: false, left: false, right: false,
+            valid: true,
+            up: false,
+            down: false,
+            left: false,
+            right: false,
         };
         if i > 0 {
             let (prev_x, prev_y) = waypoints[i - 1];
-            if prev_x < px { arms.left = true; }
-            else if prev_x > px { arms.right = true; }
-            else if prev_y < py { arms.up = true; }
-            else if prev_y > py { arms.down = true; }
+            if prev_x < px {
+                arms.left = true;
+            } else if prev_x > px {
+                arms.right = true;
+            } else if prev_y < py {
+                arms.up = true;
+            } else if prev_y > py {
+                arms.down = true;
+            }
         }
         if i < waypoints.len() - 1 {
             let (nxt_x, nxt_y) = waypoints[i + 1];
-            if nxt_x > px { arms.right = true; }
-            else if nxt_x < px { arms.left = true; }
-            else if nxt_y > py { arms.down = true; }
-            else if nxt_y < py { arms.up = true; }
+            if nxt_x > px {
+                arms.right = true;
+            } else if nxt_x < px {
+                arms.left = true;
+            } else if nxt_y > py {
+                arms.down = true;
+            } else if nxt_y < py {
+                arms.up = true;
+            }
         }
         cset_merge(c, px, py, canvas::arms_to_char(arms, cs.clone()));
     }
 
     // Arrowheads
-    let arrow_types = ["Arrow", "DottedArrow", "ThickArrow", "BidirArrow", "BidirDotted", "BidirThick"];
+    let arrow_types = [
+        "Arrow",
+        "DottedArrow",
+        "ThickArrow",
+        "BidirArrow",
+        "BidirDotted",
+        "BidirThick",
+    ];
     let bidir_types = ["BidirArrow", "BidirDotted", "BidirThick"];
 
     if arrow_types.contains(&edge_type) {
         let (last_x, last_y) = waypoints[waypoints.len() - 1];
         let (prev_x, prev_y) = waypoints[waypoints.len() - 2];
-        let arrow = if last_y < prev_y { bc.arrow_up.clone() }
-                     else if last_y > prev_y { bc.arrow_down.clone() }
-                     else if last_x > prev_x { bc.arrow_right.clone() }
-                     else { bc.arrow_left.clone() };
+        let arrow = if last_y < prev_y {
+            bc.arrow_up.clone()
+        } else if last_y > prev_y {
+            bc.arrow_down.clone()
+        } else if last_x > prev_x {
+            bc.arrow_right.clone()
+        } else {
+            bc.arrow_left.clone()
+        };
         cset(c, last_x, last_y, arrow);
     }
 
     if bidir_types.contains(&edge_type) && waypoints.len() >= 2 {
         let (first_x, first_y) = waypoints[0];
         let (second_x, second_y) = waypoints[1];
-        let arrow = if first_y < second_y { bc.arrow_up.clone() }
-                     else if first_y > second_y { bc.arrow_down.clone() }
-                     else if first_x > second_x { bc.arrow_right.clone() }
-                     else { bc.arrow_left.clone() };
+        let arrow = if first_y < second_y {
+            bc.arrow_up.clone()
+        } else if first_y > second_y {
+            bc.arrow_down.clone()
+        } else if first_x > second_x {
+            bc.arrow_right.clone()
+        } else {
+            bc.arrow_left.clone()
+        };
         cset(c, first_x, first_y, arrow);
     }
 
@@ -997,10 +1186,14 @@ fn paint_exit_stubs(
     for ei in 0..en {
         let from_id = graph::erl_get_from(edges.clone(), ei);
         let wpc = graph::erl_get_waypoint_count(edges.clone(), ei);
-        if wpc < 1 { continue; }
+        if wpc < 1 {
+            continue;
+        }
 
         let from_idx = graph::nll_id_to_index(nodes.clone(), from_id);
-        if from_idx < 0 { continue; }
+        if from_idx < 0 {
+            continue;
+        }
 
         let nx = graph::nll_get_x(nodes.clone(), from_idx);
         let ny = graph::nll_get_y(nodes.clone(), from_idx);
@@ -1037,15 +1230,27 @@ fn paint_exit_stubs(
 fn flip_vertical(s: &str) -> String {
     let remap = |c: char| -> char {
         match c {
-            '▼' => '▲', '▲' => '▼', 'v' => '^', '^' => 'v',
-            '┌' => '└', '└' => '┌', '┐' => '┘', '┘' => '┐',
-            '╭' => '╰', '╰' => '╭', '╮' => '╯', '╯' => '╮',
-            '┬' => '┴', '┴' => '┬',
+            '▼' => '▲',
+            '▲' => '▼',
+            'v' => '^',
+            '^' => 'v',
+            '┌' => '└',
+            '└' => '┌',
+            '┐' => '┘',
+            '┘' => '┐',
+            '╭' => '╰',
+            '╰' => '╭',
+            '╮' => '╯',
+            '╯' => '╮',
+            '┬' => '┴',
+            '┴' => '┬',
             other => other,
         }
     };
     let lines: Vec<&str> = s.trim_end_matches('\n').split('\n').collect();
-    let flipped: Vec<String> = lines.iter().rev()
+    let flipped: Vec<String> = lines
+        .iter()
+        .rev()
         .map(|line| line.chars().map(remap).collect::<String>())
         .collect();
     flipped.join("\n") + "\n"
@@ -1054,22 +1259,37 @@ fn flip_vertical(s: &str) -> String {
 fn flip_horizontal(s: &str) -> String {
     let remap = |c: char| -> char {
         match c {
-            '►' => '◄', '◄' => '►', '>' => '<', '<' => '>',
-            '┌' => '┐', '┐' => '┌', '└' => '┘', '┘' => '└',
-            '╭' => '╮', '╮' => '╭', '╰' => '╯', '╯' => '╰',
-            '├' => '┤', '┤' => '├',
+            '►' => '◄',
+            '◄' => '►',
+            '>' => '<',
+            '<' => '>',
+            '┌' => '┐',
+            '┐' => '┌',
+            '└' => '┘',
+            '┘' => '└',
+            '╭' => '╮',
+            '╮' => '╭',
+            '╰' => '╯',
+            '╯' => '╰',
+            '├' => '┤',
+            '┤' => '├',
             other => other,
         }
     };
     let lines: Vec<&str> = s.trim_end_matches('\n').split('\n').collect();
     let max_w = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-    let flipped: Vec<String> = lines.iter().map(|line| {
-        let mut chars: Vec<char> = line.chars().collect();
-        while chars.len() < max_w { chars.push(' '); }
-        chars.reverse();
-        let remapped: String = chars.into_iter().map(remap).collect();
-        remapped.trim_end().to_string()
-    }).collect();
+    let flipped: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            let mut chars: Vec<char> = line.chars().collect();
+            while chars.len() < max_w {
+                chars.push(' ');
+            }
+            chars.reverse();
+            let remapped: String = chars.into_iter().map(remap).collect();
+            remapped.trim_end().to_string()
+        })
+        .collect();
     flipped.join("\n") + "\n"
 }
 
@@ -1126,16 +1346,24 @@ pub fn render_dsl(
     for i in 0..nn {
         let r = graph::nll_get_x(nodes.clone(), i) + graph::nll_get_width(nodes.clone(), i) + 2;
         let b = graph::nll_get_y(nodes.clone(), i) + graph::nll_get_height(nodes.clone(), i) + 4;
-        if r > max_col { max_col = r; }
-        if b > max_row { max_row = b; }
+        if r > max_col {
+            max_col = r;
+        }
+        if b > max_row {
+            max_row = b;
+        }
     }
     for i in 0..en {
         let wpc = graph::erl_get_waypoint_count(routed.clone(), i);
         for j in 0..wpc {
             let wx = graph::erl_get_waypoint_x(routed.clone(), i, j) + 4;
             let wy = graph::erl_get_waypoint_y(routed.clone(), i, j) + 4;
-            if wx > max_col { max_col = wx; }
-            if wy > max_row { max_row = wy; }
+            if wx > max_col {
+                max_col = wx;
+            }
+            if wy > max_row {
+                max_row = wy;
+            }
         }
     }
 
@@ -1215,7 +1443,11 @@ pub fn render_with_options(
     padding: usize,
     direction: &str,
 ) -> Result<String, JsError> {
-    let dir = if direction.is_empty() { None } else { Some(direction) };
+    let dir = if direction.is_empty() {
+        None
+    } else {
+        Some(direction)
+    };
     render_dsl(src, unicode, padding, dir).map_err(|e| JsError::new(&e))
 }
 
@@ -1223,7 +1455,11 @@ pub fn render_with_options(
 #[wasm_bindgen(js_name = "renderSvg")]
 pub fn render_svg(src: &str, padding: usize, direction: &str) -> Result<String, JsError> {
     // Render as Unicode, wrap in SVG <text> for now (full SVG renderer TODO)
-    let dir = if direction.is_empty() { None } else { Some(direction) };
+    let dir = if direction.is_empty() {
+        None
+    } else {
+        Some(direction)
+    };
     let ascii = render_dsl(src, true, padding, dir).map_err(|e| JsError::new(&e))?;
     let lines: Vec<&str> = ascii.trim_end().split('\n').collect();
     let max_width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
@@ -1238,7 +1474,10 @@ pub fn render_svg(src: &str, padding: usize, direction: &str) -> Result<String, 
     svg.push_str(r##"<rect width="100%" height="100%" fill="#0d1117"/>"##);
     svg.push_str(r##"<text font-family="monospace" font-size="14" fill="#c9d1d9">"##);
     for (i, line) in lines.iter().enumerate() {
-        let escaped = line.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let escaped = line
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
         svg.push_str(&format!(
             r#"<tspan x="20" y="{}">{}</tspan>"#,
             20.0 + (i as f64 + 1.0) * char_h,
