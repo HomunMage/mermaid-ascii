@@ -20,13 +20,103 @@ fn main() {
 
     println!("cargo:rustc-env=MERMAID_ASCII_VERSION={}", version);
 
+    // Generate runtime.rs — Homun's builtin + std + re + heap runtime.
+    generate_runtime();
+
     // Compile .hom files → .rs into OUT_DIR (inside target/).
     // Generated .rs never pollute src/. cargo clean removes everything.
     compile_hom_files();
 }
 
+/// Generate runtime.rs in OUT_DIR by concatenating .rs files from src/hom/
+/// (homun-std submodule). No homunc needed — just cat the .rs files together.
+fn generate_runtime() {
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let runtime_path = out_dir.join("runtime.rs");
+    let hom = PathBuf::from("src/hom");
+
+    // builtin.rs — macros (range!, len!, filter!, map!, dict!, set!, slice!, homun_in!),
+    // traits (HomunIndex, HomunLen, HomunContains)
+    let builtin = std::fs::read_to_string(hom.join("builtin.rs"))
+        .expect("src/hom/builtin.rs not found — is the hom submodule initialized?");
+
+    // std/ — standard library (str, math, collection, dict, stack, deque, io)
+    // Read mod.rs but strip include!() lines (we inline the sub-files directly)
+    let std_mod: String = std::fs::read_to_string(hom.join("std/mod.rs")).unwrap()
+        .lines()
+        .filter(|l| !l.trim().starts_with("include!("))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let std_str = std::fs::read_to_string(hom.join("std/str.rs")).unwrap();
+    let std_math = std::fs::read_to_string(hom.join("std/math.rs")).unwrap();
+    let std_collection = std::fs::read_to_string(hom.join("std/collection.rs")).unwrap();
+    let std_dict = std::fs::read_to_string(hom.join("std/dict.rs")).unwrap();
+    let std_stack = std::fs::read_to_string(hom.join("std/stack.rs")).unwrap();
+    let std_deque = std::fs::read_to_string(hom.join("std/deque.rs")).unwrap();
+    let std_io = std::fs::read_to_string(hom.join("std/io.rs")).unwrap();
+
+    // re.rs — regex helpers
+    let re = std::fs::read_to_string(hom.join("re.rs")).unwrap();
+    // heap.rs — BinaryHeap helpers (strip only duplicate RefCell import)
+    let heap: String = std::fs::read_to_string(hom.join("heap.rs")).unwrap()
+        .lines()
+        .filter(|l| l.trim() != "use std::cell::RefCell;")
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let code = format!(
+        "// ── builtin ────────────────────────────────────────────────\n\
+         {builtin}\n\n\
+         // ── std ────────────────────────────────────────────────────\n\
+         {std_mod}\n{std_str}\n{std_math}\n{std_collection}\n{std_dict}\n{std_stack}\n{std_deque}\n{std_io}\n\n\
+         // ── re ─────────────────────────────────────────────────────\n\
+         {re}\n\n\
+         // ── heap ───────────────────────────────────────────────────\n\
+         {heap}\n"
+    );
+
+    std::fs::write(&runtime_path, &code).unwrap();
+    println!("cargo:warning=Generated runtime.rs ({} bytes) from src/hom/", code.len());
+
+    // Rerun if any hom runtime file changes
+    println!("cargo:rerun-if-changed=src/hom/builtin.rs");
+    println!("cargo:rerun-if-changed=src/hom/std/mod.rs");
+    println!("cargo:rerun-if-changed=src/hom/re.rs");
+    println!("cargo:rerun-if-changed=src/hom/heap.rs");
+}
+
+fn find_homunc() -> PathBuf {
+    let local = PathBuf::from(".tmp/homunc");
+    if local.exists() {
+        return local;
+    }
+    // Try PATH
+    if Command::new("homunc").arg("--version").output().is_ok() {
+        return PathBuf::from("homunc");
+    }
+    // Download from GitHub releases
+    std::fs::create_dir_all(".tmp").unwrap();
+    let url = "https://github.com/HomunMage/Homun-Lang/releases/latest/download/homunc-linux-x86_64";
+    let status = Command::new("wget")
+        .args(["-q", url, "-O", local.to_str().unwrap()])
+        .status();
+    if let Ok(s) = status {
+        if s.success() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&local, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            println!("cargo:warning=Downloaded homunc to .tmp/homunc");
+            return local;
+        }
+    }
+    panic!("Cannot find or download homunc");
+}
+
 fn compile_hom_files() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let homunc = find_homunc();
 
     let Ok(entries) = std::fs::read_dir("src") else {
         return;
@@ -47,9 +137,9 @@ fn compile_hom_files() {
                     .unwrap_or(true);
 
             if needs_compile {
-                let status = Command::new("homunc")
+                let status = Command::new(&homunc)
                     .args([
-                        "--raw",
+                        "--module",
                         &path.to_string_lossy(),
                         "-o",
                         &rs_path.to_string_lossy(),
@@ -63,11 +153,16 @@ fn compile_hom_files() {
                             rs_path.display()
                         );
                     }
-                    _ => {
-                        // homunc not available or compilation failed — skip
+                    Ok(s) => {
                         println!(
-                            "cargo:warning=homunc skipped for {} (not available or failed)",
-                            path.display()
+                            "cargo:warning=homunc failed for {} (exit code {:?})",
+                            path.display(), s.code()
+                        );
+                    }
+                    Err(e) => {
+                        println!(
+                            "cargo:warning=homunc error for {}: {}",
+                            path.display(), e
                         );
                     }
                 }

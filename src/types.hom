@@ -48,7 +48,7 @@ Node := struct {
   id: str,
   label: str,
   shape: NodeShape,
-  attrs: @[]
+  attrs: @[Attr]
 }
 
 // Create a node with explicit id, label, and shape.
@@ -58,7 +58,7 @@ node_new := (id: str, label: str, shape: NodeShape) -> Node {
 
 // Create a bare node: id becomes the label, shape defaults to Rectangle.
 node_bare := (id: str) -> Node {
-  Node { id: id, label: id, shape: NodeShape.Rectangle, attrs: @[] }
+  node_new(id, id, NodeShape.Rectangle)
 }
 
 // ── Edge ──────────────────────────────────────────────────────────────────────
@@ -67,8 +67,8 @@ Edge := struct {
   from_id: str,
   to_id: str,
   edge_type: EdgeType,
-  label: str,     // optional: none if no label
-  attrs: @[]
+  label: Option<str>,
+  attrs: @[Attr]
 }
 
 // Create an edge with no label by default.
@@ -80,11 +80,11 @@ edge_new := (from_id: str, to_id: str, edge_type: EdgeType) -> Edge {
 
 Subgraph := struct {
   name: str,
-  nodes: @[],
-  edges: @[],
-  subgraphs: @[],
-  description: str,    // optional: none if no subtitle
-  direction: Direction  // optional: none means inherit parent direction
+  nodes: @[Node],
+  edges: @[Edge],
+  subgraphs: @[Subgraph],
+  description: Option<str>,
+  direction: Option<Direction>
 }
 
 // Create an empty named subgraph.
@@ -103,9 +103,9 @@ subgraph_new := (name: str) -> Subgraph {
 
 Graph := struct {
   direction: Direction,
-  nodes: @[],
-  edges: @[],
-  subgraphs: @[]
+  nodes: @[Node],
+  edges: @[Edge],
+  subgraphs: @[Subgraph]
 }
 
 // Create a new empty graph with default TD direction.

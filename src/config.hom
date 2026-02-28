@@ -14,7 +14,7 @@ use std
 RenderConfig := struct {
   unicode: bool,
   padding: int,
-  direction_override: str   // optional: none means use the graph's own direction
+  direction_override: Option<str>   // none means use the graph's own direction
 }
 
 // Create a RenderConfig with default values (unicode on, padding=1, no override).
@@ -27,7 +27,7 @@ config_default := () -> RenderConfig {
 }
 
 // Create a RenderConfig with explicit values.
-config_new := (unicode: bool, padding: int, direction_override: str) -> RenderConfig {
+config_new := (unicode: bool, padding: int, direction_override: Option<str>) -> RenderConfig {
   RenderConfig {
     unicode: unicode,
     padding: padding,

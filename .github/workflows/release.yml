@@ -34,6 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
+          submodules: recursive
 
       - name: Build with Docker
         run: |
@@ -63,6 +64,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
+          submodules: recursive
 
       - name: Build WASM with Docker
         run: |

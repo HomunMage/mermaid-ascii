@@ -1,0 +1,6 @@
+#!/bin/sh
+cargo fmt -- --check
+if [ $? -ne 0 ]; then
+    echo "Error: cargo fmt check failed. Run 'cargo fmt' and try again."
+    exit 1
+fi

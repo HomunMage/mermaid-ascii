@@ -26,20 +26,14 @@ tests/
 **IMPORTANT**: Generated `.rs` files (from `.hom`) are gitignored. `build.rs` runs `homunc` at build time to produce them. Never commit `src/types.rs`, `src/config.rs`, etc. Only commit `.hom` source files.
 
 ## Homunc Compiler
-The `homunc` compiler is at: `../Homun-Lang/target/release/homunc`
 
-Build it if needed:
+Install the latest `homunc` from GitHub releases:
 ```bash
-cd ../Homun-Lang && cargo build --release
+wget -q https://github.com/HomunMage/Homun-Lang/releases/latest/download/homunc-linux-x86_64 -O ~/bin/homunc
+chmod +x ~/bin/homunc
 ```
 
 `build.rs` automatically compiles `src/*.hom` → `$OUT_DIR/*.rs` (inside `target/`) when `homunc` is in PATH. Generated `.rs` files never live in `src/` — they are build artifacts in `target/`.
-
-To put homunc in PATH for cargo:
-```bash
-PATH="../Homun-Lang/target/release:$PATH" cargo build
-PATH="../Homun-Lang/target/release:$PATH" cargo test
-```
 
 `cargo clean` removes all generated files.
 
@@ -60,12 +54,12 @@ PATH="../Homun-Lang/target/release:$PATH" cargo test
 1. **Write/edit a .hom module** — one function or one module at a time
 2. **Build** (build.rs calls homunc automatically):
    ```bash
-   PATH="../Homun-Lang/target/release:$PATH" cargo build 2>&1
+   cargo build 2>&1
    ```
    This compiles .hom → .rs into `target/` then builds the project. MUST succeed.
 3. **Run tests**:
    ```bash
-   PATH="../Homun-Lang/target/release:$PATH" cargo test 2>&1
+   cargo test 2>&1
    ```
    All tests MUST pass.
 4. **Commit** (only .hom source, never generated .rs):
@@ -104,9 +98,8 @@ PATH="../Homun-Lang/target/release:$PATH" cargo test
 ## Known .hom Language Gaps
 1. `.hom codegen wraps all Var args in .clone()` — for Vec<T> this clones the whole Vec and mutations are lost. Use `Rc<RefCell<...>>` dep types so `.clone()` is a pointer-bump.
 2. `||`, `&&`, `!` are lex errors — use `or`, `and`, `not`
-3. `homunc codegen emits EnumName.Variant` (dot) instead of `EnumName::Variant` (Rust ::) — avoid creating enum values in function bodies if the output .rs won't compile; use Rust dep helpers instead.
-4. Top-level variables compile to `const X: _ = ...` which fails — define constants inline or use functions.
-5. Functions from dep/*.rs are unknown to homunc's semantic checker — they appear as "undefined reference" errors. Workaround: declare them with `extern` or accept the semantic warning.
+3. Functions from dep/*.rs are unknown to homunc's semantic checker — they appear as "undefined reference" errors. Workaround: accept the semantic warning.
+4. `str` in .hom = `String` in Rust. Match arms with string literals need `.as_str()` or use `&str` params.
 
 ## Pipeline
 ```
