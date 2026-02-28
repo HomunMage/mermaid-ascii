@@ -1384,12 +1384,13 @@ pub fn render_dsl(
         return Ok(String::new());
     }
 
-    let direction = match parsed.direction {
+    let parsed_direction = match parsed.direction {
         parser::Direction::LR => "LR",
         parser::Direction::RL => "RL",
         parser::Direction::BT => "BT",
         _ => "TD",
     };
+    let direction = _direction.unwrap_or(parsed_direction);
 
     // Phase 1: Build graph
     let g = ast_to_graph(&parsed);
