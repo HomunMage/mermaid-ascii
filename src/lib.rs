@@ -1514,6 +1514,74 @@ pub fn render_dsl(
     Ok(rendered)
 }
 
+/// Render Mermaid DSL source to geometry-based SVG.
+///
+/// Runs the full layout pipeline then calls `svg_renderer::render()`.
+/// Direction: parsed from the source header; `_direction` overrides it.
+pub fn render_svg_dsl(
+    src: &str,
+    padding: usize,
+    _direction: Option<&str>,
+) -> Result<String, String> {
+    // Phase 0: Parse
+    let parsed = rust_parser::parse_flowchart(src);
+    if parsed.nodes.is_empty() && parsed.edges.is_empty() && parsed.subgraphs.is_empty() {
+        return Ok(String::new());
+    }
+
+    let parsed_direction = match parsed.direction {
+        parser::Direction::LR => "LR",
+        parser::Direction::RL => "RL",
+        parser::Direction::BT => "BT",
+        _ => "TD",
+    };
+    let direction = _direction.unwrap_or(parsed_direction);
+
+    // Phase 1: Build graph
+    let g = ast_to_graph(&parsed);
+
+    // Phase 2: Remove cycles + assign layers
+    let (dag, reversed) = remove_cycles_rust(&g);
+    let layers = assign_layers_rust(&dag);
+
+    // Phase 3-4: Build layer ordering with crossing minimization
+    let ordering = build_ordering(&dag, &layers);
+
+    // Phase 5: Assign coordinates
+    let is_lr_or_rl = direction == "LR" || direction == "RL";
+    let nodes = assign_coordinates_rust(&dag, &ordering, padding as i32, is_lr_or_rl);
+
+    // Phase 6: Route edges
+    let routed = route_edges_rust(&g, &nodes, &reversed);
+
+    // Transpose node positions and waypoints for LR/RL
+    if is_lr_or_rl {
+        transpose_layout(&nodes, &routed);
+    }
+
+    // Collect subgraph member lists for SVG border rendering.
+    fn collect_sg(sg: &parser::Subgraph, out: &mut Vec<(String, Vec<String>)>) {
+        if !sg.name.is_empty() {
+            let ids: Vec<String> = sg.nodes.iter().map(|n| n.id.clone()).collect();
+            out.push((sg.name.clone(), ids));
+        }
+        for nested in &sg.subgraphs {
+            collect_sg(nested, out);
+        }
+    }
+    let mut subgraph_members: Vec<(String, Vec<String>)> = Vec::new();
+    for sg in &parsed.subgraphs {
+        collect_sg(sg, &mut subgraph_members);
+    }
+
+    Ok(svg_renderer::render(
+        &nodes,
+        &routed,
+        direction,
+        &subgraph_members,
+    ))
+}
+
 // ── WASM bindings ───────────────────────────────────────────────────────────
 
 #[cfg(feature = "wasm")]
