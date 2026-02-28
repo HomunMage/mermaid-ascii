@@ -1,0 +1,15 @@
+# Port Legacy Features: LR/RL Direction + Real SVG Renderer
+
+## Phase 1: Fix Direction Support
+- [x] Fix LR/RL direction — add transpose logic to render_dsl() in lib.rs so LR/RL layouts render horizontally (port transpose from legacy branch `git show legacy:src/rust/renderers/ascii.rs`)
+- [x] Fix direction override — the `_direction` parameter in render_dsl() is unused; wire it to override parsed.direction
+- [x] Verify all direction examples pass — run `bash examples/gen.sh --check` and fix any mismatches for lr_simple, lr_fanout, bt_simple
+
+## Phase 2: Real SVG Renderer
+- [x] Add SVG renderer module — create `src/svg_renderer.rs` porting geometry-based SVG from legacy `git show legacy:src/rust/renderers/svg.rs` (adapt to use current graph:: accessor API)
+- [x] Wire render_svg into lib.rs — add public `render_svg()` function that runs layout pipeline then calls svg_renderer
+- [ ] Add --svg CLI flag — update src/main.rs with `--svg` flag that calls render_svg(), import render_svg from lib
+
+## Phase 3: Test & Polish
+- [ ] Update gen.sh for SVG — add SVG generation (`--svg` flag) and checking against .expect.svg golden files
+- [ ] Update WASM SVG — replace fake text-wrapped SVG in render_svg WASM binding with real geometry-based SVG

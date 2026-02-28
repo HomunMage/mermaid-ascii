@@ -1,0 +1,6 @@
+[PLAN] Phase 1-3 planned: 8 tickets — fix LR/RL direction, add real SVG renderer, update CLI/WASM/tests
+[W1] Added LR/RL transpose logic: is_lr_or_rl flag, transpose_layout(), ensure_vertical_endpoints(), alphabetical layer sort — src/lib.rs. lr_simple and lr_fanout now pass golden file checks; also fixed diamond and edges (TD arrowhead directions).
+[W1] Wired _direction override: renamed parsed_direction, applied _direction.unwrap_or(parsed_direction) so CLI --direction flag overrides AST direction — src/lib.rs
+[W1] Verified direction examples: lr_simple, lr_fanout, bt_simple all pass gen.sh --check; architecture/flowchart/pipeline/sysarch failures are pre-existing and unrelated to direction work — no files changed
+[W1] Added SVG renderer module: src/svg_renderer.rs with render() fn — takes NodeLayoutList + EdgeRouteList + direction + subgraph_members, produces geometry SVG; handles all shapes, edge types, subgraph borders, BT/RL transforms; declared as pub mod in src/lib.rs
+[W1] Added render_svg_dsl() public function: runs full layout pipeline (parse→build graph→cycle removal→layers→ordering→coords→route→transpose LR/RL), builds subgraph_members list, calls svg_renderer::render() — src/lib.rs
