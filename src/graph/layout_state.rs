@@ -721,3 +721,200 @@ pub fn deg_map_sorted_keys(dm: DegMap) -> StrList {
     keys.sort();
     std::rc::Rc::new(std::cell::RefCell::new(keys))
 }
+
+// ── NodeLayoutList ──────────────────────────────────────────────────────────
+// Phase 5: list of laid-out nodes with coordinates.
+// Stored as (id, layer, order, x, y, width, height, label, shape).
+
+#[derive(Debug, Clone)]
+pub struct NodeLayoutInfo {
+    pub id: String,
+    pub layer: i32,
+    pub order: i32,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub label: String,
+    pub shape: String,
+}
+
+pub type NodeLayoutList = std::rc::Rc<std::cell::RefCell<Vec<NodeLayoutInfo>>>;
+
+pub fn nll_new() -> NodeLayoutList {
+    std::rc::Rc::new(std::cell::RefCell::new(Vec::new()))
+}
+
+pub fn nll_push(
+    nl: NodeLayoutList,
+    id: String,
+    layer: i32,
+    order: i32,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    label: String,
+    shape: String,
+) {
+    nl.borrow_mut().push(NodeLayoutInfo {
+        id,
+        layer,
+        order,
+        x,
+        y,
+        width,
+        height,
+        label,
+        shape,
+    });
+}
+
+pub fn nll_len(nl: NodeLayoutList) -> i32 {
+    nl.borrow().len() as i32
+}
+
+pub fn nll_get_id(nl: NodeLayoutList, idx: i32) -> String {
+    nl.borrow()[idx as usize].id.clone()
+}
+
+pub fn nll_get_x(nl: NodeLayoutList, idx: i32) -> i32 {
+    nl.borrow()[idx as usize].x
+}
+
+pub fn nll_get_y(nl: NodeLayoutList, idx: i32) -> i32 {
+    nl.borrow()[idx as usize].y
+}
+
+pub fn nll_get_width(nl: NodeLayoutList, idx: i32) -> i32 {
+    nl.borrow()[idx as usize].width
+}
+
+pub fn nll_get_height(nl: NodeLayoutList, idx: i32) -> i32 {
+    nl.borrow()[idx as usize].height
+}
+
+pub fn nll_get_label(nl: NodeLayoutList, idx: i32) -> String {
+    nl.borrow()[idx as usize].label.clone()
+}
+
+pub fn nll_get_shape(nl: NodeLayoutList, idx: i32) -> String {
+    nl.borrow()[idx as usize].shape.clone()
+}
+
+pub fn nll_get_layer(nl: NodeLayoutList, idx: i32) -> i32 {
+    nl.borrow()[idx as usize].layer
+}
+
+pub fn nll_set_x(nl: NodeLayoutList, idx: i32, val: i32) {
+    nl.borrow_mut()[idx as usize].x = val;
+}
+
+/// Build a HashMap<String, usize> for fast node id -> index lookup.
+pub fn nll_id_to_index(nl: NodeLayoutList, id: String) -> i32 {
+    let v = nl.borrow();
+    for (i, info) in v.iter().enumerate() {
+        if info.id == id {
+            return i as i32;
+        }
+    }
+    -1
+}
+
+// ── EdgeRouteList ───────────────────────────────────────────────────────────
+// Phase 6: list of routed edges with waypoints.
+
+#[derive(Debug, Clone)]
+pub struct EdgeRouteInfo {
+    pub from_id: String,
+    pub to_id: String,
+    pub label: String,    // "" = no label
+    pub edge_type: String,
+    pub waypoints: Vec<(i32, i32)>,
+}
+
+pub type EdgeRouteList = std::rc::Rc<std::cell::RefCell<Vec<EdgeRouteInfo>>>;
+
+pub fn erl_new() -> EdgeRouteList {
+    std::rc::Rc::new(std::cell::RefCell::new(Vec::new()))
+}
+
+pub fn erl_push(
+    el: EdgeRouteList,
+    from_id: String,
+    to_id: String,
+    label: String,
+    edge_type: String,
+    waypoints: PointList,
+) {
+    let wps: Vec<(i32, i32)> = waypoints.borrow().clone();
+    el.borrow_mut().push(EdgeRouteInfo {
+        from_id,
+        to_id,
+        label,
+        edge_type,
+        waypoints: wps,
+    });
+}
+
+pub fn erl_len(el: EdgeRouteList) -> i32 {
+    el.borrow().len() as i32
+}
+
+pub fn erl_get_from(el: EdgeRouteList, idx: i32) -> String {
+    el.borrow()[idx as usize].from_id.clone()
+}
+
+pub fn erl_get_to(el: EdgeRouteList, idx: i32) -> String {
+    el.borrow()[idx as usize].to_id.clone()
+}
+
+pub fn erl_get_label(el: EdgeRouteList, idx: i32) -> String {
+    el.borrow()[idx as usize].label.clone()
+}
+
+pub fn erl_get_etype(el: EdgeRouteList, idx: i32) -> String {
+    el.borrow()[idx as usize].edge_type.clone()
+}
+
+pub fn erl_get_waypoint_count(el: EdgeRouteList, idx: i32) -> i32 {
+    el.borrow()[idx as usize].waypoints.len() as i32
+}
+
+pub fn erl_get_waypoint_x(el: EdgeRouteList, edge_idx: i32, wp_idx: i32) -> i32 {
+    el.borrow()[edge_idx as usize].waypoints[wp_idx as usize].0
+}
+
+pub fn erl_get_waypoint_y(el: EdgeRouteList, edge_idx: i32, wp_idx: i32) -> i32 {
+    el.borrow()[edge_idx as usize].waypoints[wp_idx as usize].1
+}
+
+// ── IntList ─────────────────────────────────────────────────────────────────
+// Simple interior-mutable Vec<i32> for Phase 5 layer height/width arrays.
+
+pub type IntList = std::rc::Rc<std::cell::RefCell<Vec<i32>>>;
+
+pub fn int_list_new() -> IntList {
+    std::rc::Rc::new(std::cell::RefCell::new(Vec::new()))
+}
+
+pub fn int_list_push(il: IntList, val: i32) {
+    il.borrow_mut().push(val);
+}
+
+pub fn int_list_len(il: IntList) -> i32 {
+    il.borrow().len() as i32
+}
+
+pub fn int_list_get(il: IntList, idx: i32) -> i32 {
+    il.borrow()[idx as usize]
+}
+
+pub fn int_list_set(il: IntList, idx: i32, val: i32) {
+    il.borrow_mut()[idx as usize] = val;
+}
+
+/// Check if string starts with prefix
+pub fn str_starts_with(s: String, prefix: String) -> bool {
+    s.starts_with(&prefix)
+}

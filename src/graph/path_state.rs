@@ -11,9 +11,6 @@
 //
 // .hom modules import this via `use path_state` and use:
 //
-//   Point — simple (x, y) coordinate pair (avoids layout_types.hom import):
-//     point_new(x, y) -> Point
-//
 //   Position encoding (grid width required for encode/decode):
 //     pos_to_key(x, y, width) -> i32        flat row-major index
 //     key_to_x(key, width)    -> i32        column from flat index
@@ -34,30 +31,6 @@
 //     point_list_get_y(pl, idx)       -> i32
 //     point_list_copy(pl)             -> PointList   (independent copy)
 //     point_list_reversed(pl)         -> PointList   (reversed copy)
-
-// ── Point ─────────────────────────────────────────────────────────────────────
-// A 2D grid coordinate (column, row).
-//
-// Defined here (not via layout_types.hom) because the homun codegen generates
-// `EnumName.Variant` (using dot) rather than `EnumName::Variant` (Rust scope
-// resolution) for enum literal expressions in function bodies.  Importing
-// layout_types.hom → types.hom transitively causes those broken enum
-// initialiser functions to be included, which prevents compilation.
-//
-// Point is a plain struct with no enum dependencies, so it is safe to define
-// in a pure .rs file.  The layout module converts between this Point and the
-// one in layout_types.hom using the same field names.
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Point {
-    pub x: i32,
-    pub y: i32,
-}
-
-/// Create a new Point at the given (x, y) coordinates.
-pub fn point_new(x: i32, y: i32) -> Point {
-    Point { x, y }
-}
 
 // ── Position encoding ─────────────────────────────────────────────────────────
 // Positions are stored as flat row-major indices: key = y * width + x.

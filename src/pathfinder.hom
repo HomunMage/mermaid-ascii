@@ -21,12 +21,9 @@
 //  (5) String vs &str mismatch: runtime functions like parse_int take &str
 //      but .hom codegen emits var.clone() which is String. Functions in
 //      dep/path_state.rs accept String where needed (str_to_key, etc.).
-//  (6) Point is defined in dep/path_state.rs, NOT in layout_types.hom.
-//      The homun codegen emits EnumName.Variant (dot) instead of
-//      EnumName::Variant (Rust ::-scope). Importing layout_types.hom pulls
-//      in types.hom which has direction_default() and node_shape_default()
-//      that create enum values — these generate invalid Rust and fail to
-//      compile. Using Point from path_state.rs avoids the entire chain.
+//  (6) a_star takes (sx, sy, ex, ey) coordinates directly instead of
+//      Point structs to avoid a name collision when layout.hom imports
+//      layout_types.hom (which defines its own Point).
 //
 // Dependencies:
 //   dep/grid_data.rs   — Rc<RefCell<Vec<bool>>> for the occupancy store
@@ -136,11 +133,7 @@ heuristic := (ax: int, ay: int, bx: int, by: int) -> int {
 //     calling convention does not lose mutations.
 //   - -1 in CostData means "unvisited"; -2 means "start (no predecessor)".
 
-a_star := (grid: OccupancyGrid, start: Point, end: Point) -> PointList {
-  sx := start.x
-  sy := start.y
-  ex := end.x
-  ey := end.y
+a_star := (grid: OccupancyGrid, sx: int, sy: int, ex: int, ey: int) -> PointList {
   gw := grid.width
   gh := grid.height
 

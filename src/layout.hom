@@ -1,6 +1,6 @@
-// layout.hom — Sugiyama-style layered graph layout (Phases 1–4)
+// layout.hom — Sugiyama-style layered graph layout (Phases 1–6)
 //
-// This module implements Phases 1, 2, 3, and 4 of the 8-phase Sugiyama
+// This module implements Phases 1, 2, 3, 4, 5, and 6 of the Sugiyama
 // algorithm:
 //
 //   Phase 1: greedy_fas_ordering + remove_cycles
@@ -640,3 +640,299 @@ minimise_crossings := (aug: AugmentedGraph) -> OrderingList {
 
   ordering
 }
+
+
+// ── Phase 5: assign_coordinates ─────────────────────────────────────────────
+// Assign (x, y) character-grid coordinates to every node.
+//
+// For each node: compute (width, height) based on label dimensions.
+//   Dummy nodes: (1, 3). Real nodes: (max_line_w + 2 + 2*padding, 2 + lines).
+// Per-layer max height → cumulative Y with v_gap.
+// Per-layer total width → center horizontally.
+// Barycenter refinement: nudge layers toward parent/child centers.
+// Normalize so min_x = 0.
+//
+// Uses NodeLayoutList from layout_state.rs (Rc<RefCell<Vec<NodeLayoutInfo>>>)
+// so mutations through .clone() are shared.
+
+assign_coordinates := (ordering: OrderingList, aug: AugmentedGraph, padding: int) -> NodeLayoutList {
+  lc := ordering_layer_count(ordering)
+  g  := aug.graph
+  // Layout constants (inline to avoid Rust const naming mismatch)
+  c_h_gap := 4
+  c_v_gap := 3
+  c_node_height := 3
+
+  // ── Build per-layer max heights and node dimensions ───────────────────────
+  layer_max_h := int_list_new()
+  li := 0
+  while (li < lc) do {
+    int_list_push(layer_max_h, c_node_height)
+    li := li + 1
+  }
+
+  // ── Compute layer Y positions (cumulative) ────────────────────────────────
+  // First pass: find max height per layer
+  li := 0
+  while (li < lc) do {
+    layer := ordering_get_layer(ordering, li)
+    ln := str_list_len(layer)
+    lj := 0
+    while (lj < ln) do {
+      nid := str_list_get(layer, lj)
+      lbl := gw_node_label(g, nid)
+      is_dummy := str_starts_with(nid, "__dummy_")
+      if (is_dummy) do {
+        // dummy: height = node_height (3)
+      } else {
+        lines := split(lbl, "\n")
+        line_count := len(lines)
+        nh := 2 + line_count
+        if (nh > int_list_get(layer_max_h, li)) do {
+          int_list_set(layer_max_h, li, nh)
+        }
+      }
+      lj := lj + 1
+    }
+    li := li + 1
+  }
+
+  // Cumulative Y positions
+  layer_y := int_list_new()
+  cy := 0
+  li := 0
+  while (li < lc) do {
+    int_list_push(layer_y, cy)
+    cy := cy + int_list_get(layer_max_h, li) + c_v_gap
+    li := li + 1
+  }
+
+  // ── Compute per-layer total widths ────────────────────────────────────────
+  layer_total_w := int_list_new()
+  li := 0
+  while (li < lc) do {
+    layer := ordering_get_layer(ordering, li)
+    ln := str_list_len(layer)
+    w_sum := 0
+    lj := 0
+    while (lj < ln) do {
+      nid := str_list_get(layer, lj)
+      lbl := gw_node_label(g, nid)
+      is_dummy := str_starts_with(nid, "__dummy_")
+      nw := 1
+      if (not is_dummy) do {
+        lines := split(lbl, "\n")
+        max_line_w := 0
+        for line in lines do {
+          lw := len(line)
+          if (lw > max_line_w) do {
+            max_line_w := lw
+          }
+        }
+        nw := max_line_w + 2 + 2 * padding
+      }
+      w_sum := w_sum + nw
+      lj := lj + 1
+    }
+    gaps := 0
+    if (ln > 1) do {
+      gaps := (ln - 1) * c_h_gap
+    }
+    int_list_push(layer_total_w, w_sum + gaps)
+    li := li + 1
+  }
+
+  // Find max layer width for centering
+  max_layer_w := 0
+  li := 0
+  while (li < lc) do {
+    tw := int_list_get(layer_total_w, li)
+    if (tw > max_layer_w) do {
+      max_layer_w := tw
+    }
+    li := li + 1
+  }
+  center_col := max_layer_w / 2
+
+  // ── Place nodes ──────────────────────────────────────────────────────────
+  nodes := nll_new()
+  li := 0
+  while (li < lc) do {
+    layer := ordering_get_layer(ordering, li)
+    ln := str_list_len(layer)
+    tw := int_list_get(layer_total_w, li)
+    offset := center_col - tw / 2
+    if (offset < 0) do {
+      offset := 0
+    }
+    x := offset
+    lj := 0
+    while (lj < ln) do {
+      nid := str_list_get(layer, lj)
+      lbl := gw_node_label(g, nid)
+      shp := gw_node_shape(g, nid)
+      is_dummy := str_starts_with(nid, "__dummy_")
+      nw := 1
+      nh := c_node_height
+      if (not is_dummy) do {
+        lines := split(lbl, "\n")
+        line_count := len(lines)
+        max_line_w := 0
+        for line in lines do {
+          lw := len(line)
+          if (lw > max_line_w) do {
+            max_line_w := lw
+          }
+        }
+        nw := max_line_w + 2 + 2 * padding
+        nh := 2 + line_count
+      }
+      nll_push(nodes, nid, li, lj, x, int_list_get(layer_y, li), nw, nh, lbl, shp)
+      x := x + nw + c_h_gap
+      lj := lj + 1
+    }
+    li := li + 1
+  }
+
+  // ── Barycenter refinement (forward: nudge children toward parents) ────────
+  li := 1
+  while (li < lc) do {
+    layer := ordering_get_layer(ordering, li)
+    ln := str_list_len(layer)
+    sum_child := 0
+    sum_parent := 0
+    count := 0
+    lj := 0
+    while (lj < ln) do {
+      nid := str_list_get(layer, lj)
+      ni := nll_id_to_index(nodes, nid)
+      if (ni >= 0) do {
+        child_center := nll_get_x(nodes, ni) + nll_get_width(nodes, ni) / 2
+        preds := gw_predecessors(g, nid)
+        pn := str_list_len(preds)
+        pi := 0
+        while (pi < pn) do {
+          pred := str_list_get(preds, pi)
+          is_d := str_starts_with(pred, "__dummy_")
+          if (not is_d) do {
+            pidx := nll_id_to_index(nodes, pred)
+            if (pidx >= 0) do {
+              if (nll_get_layer(nodes, pidx) + 1 == li) do {
+                parent_center := nll_get_x(nodes, pidx) + nll_get_width(nodes, pidx) / 2
+                sum_child := sum_child + child_center
+                sum_parent := sum_parent + parent_center
+                count := count + 1
+              }
+            }
+          }
+          pi := pi + 1
+        }
+      }
+      lj := lj + 1
+    }
+    if (count > 0) do {
+      shift := sum_parent / count - sum_child / count
+      if (shift > 0 - c_h_gap and shift < c_h_gap) do {
+        lj := 0
+        while (lj < ln) do {
+          nid := str_list_get(layer, lj)
+          ni := nll_id_to_index(nodes, nid)
+          if (ni >= 0) do {
+            new_x := nll_get_x(nodes, ni) + shift
+            if (new_x < 0) do {
+              new_x := 0
+            }
+            nll_set_x(nodes, ni, new_x)
+          }
+          lj := lj + 1
+        }
+      }
+    }
+    li := li + 1
+  }
+
+  // ── Barycenter refinement (backward: nudge parents toward children) ───────
+  li := lc - 2
+  while (li >= 0) do {
+    layer := ordering_get_layer(ordering, li)
+    ln := str_list_len(layer)
+    sum_node := 0
+    sum_child := 0
+    count := 0
+    lj := 0
+    while (lj < ln) do {
+      nid := str_list_get(layer, lj)
+      ni := nll_id_to_index(nodes, nid)
+      if (ni >= 0) do {
+        node_center := nll_get_x(nodes, ni) + nll_get_width(nodes, ni) / 2
+        succs := gw_successors(g, nid)
+        sn := str_list_len(succs)
+        si := 0
+        while (si < sn) do {
+          succ := str_list_get(succs, si)
+          is_d := str_starts_with(succ, "__dummy_")
+          if (not is_d) do {
+            cidx := nll_id_to_index(nodes, succ)
+            if (cidx >= 0) do {
+              if (nll_get_layer(nodes, cidx) == li + 1) do {
+                child_center := nll_get_x(nodes, cidx) + nll_get_width(nodes, cidx) / 2
+                sum_node := sum_node + node_center
+                sum_child := sum_child + child_center
+                count := count + 1
+              }
+            }
+          }
+          si := si + 1
+        }
+      }
+      lj := lj + 1
+    }
+    if (count > 0) do {
+      shift := sum_child / count - sum_node / count
+      if (shift > 0 - c_h_gap and shift < c_h_gap) do {
+        lj := 0
+        while (lj < ln) do {
+          nid := str_list_get(layer, lj)
+          ni := nll_id_to_index(nodes, nid)
+          if (ni >= 0) do {
+            new_x := nll_get_x(nodes, ni) + shift
+            if (new_x < 0) do {
+              new_x := 0
+            }
+            nll_set_x(nodes, ni, new_x)
+          }
+          lj := lj + 1
+        }
+      }
+    }
+    li := li - 1
+  }
+
+  // ── Normalize: shift so min_x = 0 ────────────────────────────────────────
+  total := nll_len(nodes)
+  if (total > 0) do {
+    min_x := nll_get_x(nodes, 0)
+    i := 1
+    while (i < total) do {
+      nx := nll_get_x(nodes, i)
+      if (nx < min_x) do {
+        min_x := nx
+      }
+      i := i + 1
+    }
+    if (min_x > 0) do {
+      i := 0
+      while (i < total) do {
+        nll_set_x(nodes, i, nll_get_x(nodes, i) - min_x)
+        i := i + 1
+      }
+    }
+  }
+
+  nodes
+}
+
+
+// Phase 6 (route_edges) is implemented in lib.rs since it needs access to
+// both the pathfinder module (a_star, grid_new) and the layout state types,
+// which are in separate Rust modules.
