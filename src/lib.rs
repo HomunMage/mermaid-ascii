@@ -742,6 +742,11 @@ fn build_ordering(g: &graph::Graph, layers: &HashMap<String, i32>) -> Vec<Vec<St
         }
     }
 
+    // Deterministic initial order before barycenter passes
+    for group in &mut layer_groups {
+        group.sort();
+    }
+
     // Barycenter crossing minimization: order by average position of neighbors
     for _pass in 0..4 {
         // Forward pass: order layer[i] by average position of predecessors in layer[i-1]
@@ -801,6 +806,34 @@ fn build_ordering(g: &graph::Graph, layers: &HashMap<String, i32>) -> Vec<Vec<St
     layer_groups
 }
 
+/// Ensure first segment exits vertically (down) and last segment enters vertically (down).
+/// Mirrors the legacy `ensure_vertical_endpoints` from the reference Sugiyama implementation.
+/// This guarantees correct arrowhead direction (▼ for TD, ► for LR after transpose).
+fn ensure_vertical_endpoints(wps: &mut Vec<(i32, i32)>) {
+    if wps.len() < 2 {
+        return;
+    }
+    // Fix last segment: if horizontal, lift the second-to-last point up one row
+    // so the final segment becomes a short downward step.
+    let n = wps.len();
+    let (lx, ly) = wps[n - 1];
+    let (px, py) = wps[n - 2];
+    if ly == py && lx != px && py > 0 {
+        let new_y = py - 1;
+        wps[n - 2] = (px, new_y);
+        wps.insert(n - 1, (lx, new_y));
+    }
+    // Fix first segment: if horizontal, push the second point down one row
+    // so the initial segment becomes a short downward exit.
+    if wps.len() >= 2 && wps[0].1 == wps[1].1 && wps[0].0 != wps[1].0 {
+        let new_y = wps[0].1 + 1;
+        let sx = wps[1].0;
+        let x0 = wps[0].0;
+        wps[1] = (sx, new_y);
+        wps.insert(1, (x0, new_y));
+    }
+}
+
 /// Collected edge info for routing.
 struct EdgeInfo {
     from_id: String,
@@ -814,10 +847,13 @@ fn assign_coordinates_rust(
     g: &graph::Graph,
     ordering: &[Vec<String>],
     padding: i32,
+    is_lr_or_rl: bool,
 ) -> graph::NodeLayoutList {
     let nll = graph::nll_new();
-    let h_gap = 4i32;
-    let v_gap = 3i32;
+    // For LR/RL, swap h_gap and v_gap so that after transposing the visual
+    // gaps match the expected output (h_gap becomes row-spacing, v_gap becomes col-spacing).
+    let h_gap = if is_lr_or_rl { 3i32 } else { 4i32 };
+    let v_gap = if is_lr_or_rl { 4i32 } else { 3i32 };
     let min_node_h = 3i32;
 
     let mut y_offset = 0i32;
@@ -830,8 +866,15 @@ fn assign_coordinates_rust(
             let nd = &g.digraph[idx];
             let label_w = nd.label.lines().map(|l| l.len()).max().unwrap_or(0) as i32;
             let label_h = std::cmp::max(nd.label.lines().count() as i32, 1);
-            let w = std::cmp::max(label_w + 2 + 2 * padding, 5);
-            let h = std::cmp::max(label_h + 2, min_node_h);
+            let w_vis = std::cmp::max(label_w + 2 + 2 * padding, 5);
+            let h_vis = std::cmp::max(label_h + 2, min_node_h);
+            // For LR/RL: swap width and height in TD layout space so that after
+            // transposing the coordinates, nodes appear with the correct aspect ratio.
+            let (w, h) = if is_lr_or_rl {
+                (h_vis, w_vis)
+            } else {
+                (w_vis, h_vis)
+            };
             if h > layer_max_h {
                 layer_max_h = h;
             }
@@ -964,6 +1007,21 @@ fn route_edges_rust(
             wp
         };
 
+        // Extract to Vec, fix vertical endpoints, rebuild PointList
+        let n_wp = graph::point_list_len(waypoints.clone());
+        let mut wp_vec: Vec<(i32, i32)> = (0..n_wp)
+            .map(|i| {
+                let x = graph::point_list_get_x(waypoints.clone(), i);
+                let y = graph::point_list_get_y(waypoints.clone(), i);
+                (x, y)
+            })
+            .collect();
+        ensure_vertical_endpoints(&mut wp_vec);
+        let fixed_wp = graph::point_list_new();
+        for (x, y) in wp_vec {
+            graph::point_list_push(fixed_wp.clone(), x, y);
+        }
+
         let label = ed.label.clone().unwrap_or_default();
         graph::erl_push(
             routes.clone(),
@@ -971,7 +1029,7 @@ fn route_edges_rust(
             vis_to,
             label,
             ed.edge_type.clone(),
-            waypoints,
+            fixed_wp,
         );
     }
 
@@ -1200,13 +1258,19 @@ fn paint_exit_stubs(
         let nw = graph::nll_get_width(nodes.clone(), from_idx);
         let nh = graph::nll_get_height(nodes.clone(), from_idx);
         let center_x = nx + nw / 2;
+        let center_y = ny + nh / 2;
 
+        let first_wp_x = graph::erl_get_waypoint_x(edges.clone(), ei, 0);
         let first_wp_y = graph::erl_get_waypoint_y(edges.clone(), ei, 0);
 
         let (stub_x, stub_y, arm_dir) = if first_wp_y >= ny + nh {
             (center_x, ny + nh - 1, "down")
         } else if first_wp_y < ny {
             (center_x, ny, "up")
+        } else if first_wp_x >= nx + nw {
+            (nx + nw - 1, center_y, "right")
+        } else if first_wp_x < nx {
+            (nx, center_y, "left")
         } else {
             (center_x, ny + nh - 1, "down")
         };
@@ -1223,6 +1287,18 @@ fn paint_exit_stubs(
                 _ => {}
             }
             cset(c, stub_x, stub_y, canvas::arms_to_char(merged, cs.clone()));
+        }
+    }
+}
+
+fn transpose_layout(nodes: &graph::NodeLayoutList, edges: &graph::EdgeRouteList) {
+    for n in nodes.borrow_mut().iter_mut() {
+        std::mem::swap(&mut n.x, &mut n.y);
+        std::mem::swap(&mut n.width, &mut n.height);
+    }
+    for e in edges.borrow_mut().iter_mut() {
+        for wp in e.waypoints.iter_mut() {
+            std::mem::swap(&mut wp.0, &mut wp.1);
         }
     }
 }
@@ -1326,10 +1402,17 @@ pub fn render_dsl(
     let ordering = build_ordering(&dag, &layers);
 
     // Phase 5: Assign coordinates
-    let nodes = assign_coordinates_rust(&dag, &ordering, padding as i32);
+    let is_lr_or_rl = direction == "LR" || direction == "RL";
+    let nodes = assign_coordinates_rust(&dag, &ordering, padding as i32, is_lr_or_rl);
 
     // Phase 6: Route edges
     let routed = route_edges_rust(&g, &nodes, &reversed);
+
+    // Transpose node positions and waypoints for LR/RL so the TD layout maps
+    // to a horizontal visual arrangement.
+    if is_lr_or_rl {
+        transpose_layout(&nodes, &routed);
+    }
 
     // Phase 7: Render to canvas
     let cs = if unicode {

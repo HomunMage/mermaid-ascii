@@ -1,19 +1,17 @@
-# Dev Rules — mermaid-ascii
+# Dev Rules
 
 ## On Start — Read These First
 
-1. `README.md` — project overview
+1. `README.md` — project overview, architecture, tech stack
 2. `.tmp/llm.plan.status` — ticket list and current status (pick `[ ]` tickets to work on)
 3. `.tmp/llm.working.log` — abstract of recent completed work
-4. `.tmp/llm.working.notes` — detailed working notes (if exists)
-5. Any `.tmp/llm*.md` files — design docs, references
+4. `.tmp/llm.working.notes` — detailed working notes (if exists, read for more context)
+5. Any `.tmp/llm*md` files — design docs, API specs, references
 
 ## Project Overview
 
 Mermaid flowchart syntax → Parse → Graph layout → ASCII/Unicode text output.
 Written in **Homun language (.hom)** + Rust helper modules. The .hom files are compiled to .rs by `homunc`.
-
-## Autonomous Mode
 
 This project runs with autonomous Claude agents. **Never ask the user for permission or clarification. Just work.**
 
@@ -27,15 +25,20 @@ This project runs with autonomous Claude agents. **Never ask the user for permis
 ```
 src/
   *.hom          — Core logic in Homun language (source of truth)
-  dep/*.rs       — Rust helper modules (pure Rust, hand-written)
+  graph/*.rs     — Rust helper modules (pure Rust, hand-written)
   lib.rs         — API facade + full pipeline (hand-written Rust)
   main.rs        — CLI entry (hand-written Rust)
 tests/
   hom/*.hom      — Test files for .hom modules
-  hom/*.rs       — Rust integration tests for dep/ modules
+  hom/*.rs       — Rust integration tests for graph/ modules
+examples/
+  *.mm.md        — Mermaid input files (test cases)
+  *.expect.txt   — Expected ASCII output (golden files)
+  *.expect.svg   — Expected SVG output (golden files)
+  gen.sh         — Script to regenerate + verify outputs
 ```
 
-**IMPORTANT**: Generated `.rs` files (from `.hom`) are gitignored. `build.rs` runs `homunc` at build time to produce them. Never commit `src/types.rs`, `src/config.rs`, etc. Only commit `.hom` source files.
+**IMPORTANT**: Generated `.rs` files (from `.hom`) are gitignored. `build.rs` runs `homunc` at build time to produce them. Never commit generated `.rs` in `src/`. Only commit `.hom` source files.
 
 ## Work Cycle
 
@@ -43,6 +46,7 @@ tests/
 ```bash
 git status
 # If there are uncommitted changes → git reset --hard HEAD
+# Start every session with a clean working tree
 ```
 
 ### Step 2: Pick ONE Ticket
@@ -53,6 +57,7 @@ git status
 ### Step 3: Implement
 - Make the smallest possible change to complete the ticket
 - Stay in scope — don't refactor unrelated code
+- Don't add features beyond what the ticket asks
 
 ### Step 4: Test
 ```bash
@@ -71,8 +76,8 @@ cargo clippy -- -D warnings
 # Acquire lock (if multi-worker)
 while ! mkdir _git.lock 2>/dev/null; do sleep 2; done
 
-git add src/ tests/
-git commit -m "mermaid: <short description>"
+git add -A
+git commit -m "ticket: <short description of what was done>"
 
 # Release lock
 rmdir _git.lock
@@ -87,9 +92,27 @@ rmdir _git.lock
 
 ## Temporary Files
 
-- **All temp/scratch work MUST go in `./.tmp/`** (project-local), never `/tmp/` or other system dirs.
-- `.tmp/` is gitignored — safe for intermediate outputs, downloads, generated files, build artifacts, etc.
+- **All temp/scratch work MUST go in `./.tmp/`** (project-local), never `/tmp/`.
+- `.tmp/` should be in .gitignore — safe for intermediate outputs, downloads, generated files, build artifacts, etc.
 - Create `.tmp/` if it doesn't exist before writing to it.
+
+## Autonomous Agent Teams
+
+Use `/claude-bot` to set up autonomous agent teams that work while you're away.
+
+1. **Plan**: Run `/claude-bot` and discuss your project — Claude breaks work into tickets and designs custom runner scripts at `.tmp/claude-bot/`
+2. **Launch**: `bash .tmp/claude-bot/start.sh` — workers start solving tickets in tmux
+3. **Walk away**: Go eat lunch, take a break — agents work autonomously
+4. **Check results**: `tmux attach -t claude-bot` or read `.tmp/llm.working.log`
+
+See `.claude/skills/claude-bot/` for the full skill, example scripts, and planning workflow.
+
+## Changelog
+
+- Maintain `CHANGELOG.md` at the project root.
+- Use **vMajor.Minor** format only (e.g., `v1.0`, `v1.1`, `v2.0`) — no patch level.
+- Versions may jump (e.g., `v1.1` → `v1.5` or `v1.1` → `v3.0`) — a version jump signals a huge change.
+- Each entry: version, date, and bullet list of what changed in short; not all details.
 
 ## Rules
 
@@ -97,9 +120,10 @@ rmdir _git.lock
 - **Never ask questions.** Make reasonable decisions and document them in the commit message.
 - **Stay in your assigned scope.** Don't touch files outside your task boundary.
 - **If stuck after 3 attempts:** `git stash`, write BLOCKED to the trigger file, stop.
-- **All tests must pass** before committing.
+- **All tests must pass** before committing. If tests fail, fix them or stash and report BLOCKED.
+- **Don't break existing tests.** If your change breaks unrelated tests, investigate before committing.
 - **NEVER commit generated `.rs` files** in `src/` (they belong in `target/`).
-- **Commit messages**: `mermaid: <verb> <what>`
+- **Commit messages matter.** Use format: `ticket: <verb> <what>` (e.g., `ticket: add SVG renderer`)
 
 ### Error Recovery
 - If something breaks and can't be fixed in 3 attempts: `git reset --hard HEAD`
@@ -125,10 +149,10 @@ chmod +x ~/bin/homunc
 
 ## Known .hom Language Gaps
 
-1. `.hom codegen wraps all Var args in .clone()` — for Vec<T> mutations are lost. Use `Rc<RefCell<...>>` dep types.
+1. `.hom codegen wraps all Var args in .clone()` — for Vec<T> mutations are lost. Use `Rc<RefCell<...>>` graph/ types.
 2. **Nested while loop counter shadowing** — `x := x + 1` generates shadow variable → infinite loop
 3. `||`, `&&`, `!` are lex errors — use `or`, `and`, `not`
-4. Functions from dep/*.rs are unknown to homunc's semantic checker — appear as warnings
+4. Functions from graph/*.rs are unknown to homunc's semantic checker — appear as warnings
 5. `str` in .hom = `String` in Rust
 
 ## Pipeline
@@ -147,9 +171,9 @@ Mermaid DSL text
 | File | Role |
 |------|------|
 | `src/lib.rs` | **MAIN FILE** — entire pipeline: parser, layout, routing, rendering |
-| `src/dep/graph.rs` | petgraph DiGraph wrapper (hand-written Rust) |
-| `src/dep/layout_state.rs` | Rc<RefCell<...>> mutable state types |
-| `src/dep/path_state.rs` | Rc<RefCell<...>> types for A* |
+| `src/graph/graph.rs` | petgraph DiGraph wrapper (hand-written Rust) |
+| `src/graph/layout_state.rs` | Rc<RefCell<...>> mutable state types |
+| `src/graph/path_state.rs` | Rc<RefCell<...>> types for A* |
 | `src/pathfinder.hom` | A* pathfinding (works — single-level loops + Rc types) |
 | `src/canvas.hom` | Canvas/CharSet/BoxChars type definitions + pure functions |
 | `src/main.rs` | CLI entry point (clap-based) |
@@ -158,10 +182,11 @@ Mermaid DSL text
 
 ```bash
 cargo build    # homunc compiles .hom → .rs, then rustc builds
-cargo test     # 35 tests pass
+cargo test     # All tests pass
 cargo run -- input.txt           # Unicode output
 cargo run -- --ascii input.txt   # ASCII output
 printf 'graph TD\n  A-->B' | cargo run  # stdin
+bash examples/gen.sh --check    # Verify against golden files
 ```
 
 ## Mermaid Syntax Supported

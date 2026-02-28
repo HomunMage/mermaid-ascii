@@ -48,3 +48,5 @@ _site/*.js
 _site/version.txt
 !_site/index.html
 *.svg
+
+.claude/
