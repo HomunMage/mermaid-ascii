@@ -1,6 +1,6 @@
 [package]
 name = "mermaid-ascii"
-version = "0.2.0"
+version = "0.12.0"
 edition = "2024"
 description = "Mermaid flowchart syntax to ASCII/Unicode text renderer"
 authors = []
