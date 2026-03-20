@@ -851,6 +851,7 @@ fn assign_coordinates_rust(
     ordering: &[Vec<String>],
     padding: i32,
     is_lr_or_rl: bool,
+    dim_overrides: &HashMap<String, (i32, i32)>,
 ) -> graph::NodeLayoutList {
     let nll = graph::nll_new();
     // For LR/RL, swap h_gap and v_gap so that after transposing the visual
@@ -865,18 +866,18 @@ fn assign_coordinates_rust(
         // First pass: compute dimensions
         let mut dims: Vec<(i32, i32)> = Vec::new();
         for node_id in layer_nodes {
-            let idx = g.node_index[node_id];
-            let nd = &g.digraph[idx];
-            let label_w = nd.label.lines().map(|l| l.len()).max().unwrap_or(0) as i32;
-            let label_h = std::cmp::max(nd.label.lines().count() as i32, 1);
-            let w_vis = std::cmp::max(label_w + 2 + 2 * padding, 5);
-            let h_vis = std::cmp::max(label_h + 2, min_node_h);
-            // For LR/RL: swap width and height in TD layout space so that after
-            // transposing the coordinates, nodes appear with the correct aspect ratio.
-            let (w, h) = if is_lr_or_rl {
-                (h_vis, w_vis)
+            let (w, h) = if let Some(&(ow, oh)) = dim_overrides.get(node_id) {
+                if is_lr_or_rl { (oh, ow) } else { (ow, oh) }
             } else {
-                (w_vis, h_vis)
+                let idx = g.node_index[node_id];
+                let nd = &g.digraph[idx];
+                let label_w = nd.label.lines().map(|l| l.len()).max().unwrap_or(0) as i32;
+                let label_h = std::cmp::max(nd.label.lines().count() as i32, 1);
+                let w_vis = std::cmp::max(label_w + 2 + 2 * padding, 5);
+                let h_vis = std::cmp::max(label_h + 2, min_node_h);
+                // For LR/RL: swap width and height in TD layout space so that after
+                // transposing the coordinates, nodes appear with the correct aspect ratio.
+                if is_lr_or_rl { (h_vis, w_vis) } else { (w_vis, h_vis) }
             };
             if h > layer_max_h {
                 layer_max_h = h;
@@ -1361,6 +1362,238 @@ fn flip_horizontal(s: &str) -> String {
     flipped.join("\n") + "\n"
 }
 
+// ── Compound node (subgraph collapse/expand) ───────────────────────────────
+
+const COMPOUND_PREFIX: &str = "__sg_";
+const SG_INNER_GAP: i32 = 1;
+const SG_PAD_X: i32 = 1;
+
+struct CompoundInfo {
+    sg_name: String,
+    compound_id: String,
+    member_ids: Vec<String>,
+    member_widths: Vec<i32>,
+    member_heights: Vec<i32>,
+    max_member_height: i32,
+    member_labels: Vec<String>,
+    member_shapes: Vec<String>,
+}
+
+/// Collect subgraph member lists from parsed AST.
+fn collect_subgraph_members(parsed: &parser::Graph) -> Vec<(String, Vec<String>)> {
+    fn collect_sg(sg: &parser::Subgraph, out: &mut Vec<(String, Vec<String>)>) {
+        if !sg.name.is_empty() {
+            let ids: Vec<String> = sg.nodes.iter().map(|n| n.id.clone()).collect();
+            out.push((sg.name.clone(), ids));
+        }
+        for nested in &sg.subgraphs {
+            collect_sg(nested, out);
+        }
+    }
+    let mut result = Vec::new();
+    for sg in &parsed.subgraphs {
+        collect_sg(sg, &mut result);
+    }
+    result
+}
+
+/// Collapse subgraph members into compound nodes for layout.
+fn collapse_subgraphs(
+    g: &graph::Graph,
+    subgraph_members: &[(String, Vec<String>)],
+    padding: i32,
+) -> (graph::Graph, Vec<CompoundInfo>) {
+    let mut member_to_sg: HashMap<String, String> = HashMap::new();
+    let mut compounds: Vec<CompoundInfo> = Vec::new();
+
+    for (sg_name, members) in subgraph_members {
+        let compound_id = format!("{}{}", COMPOUND_PREFIX, sg_name);
+        let mut member_widths = Vec::new();
+        let mut member_heights = Vec::new();
+        let mut member_labels = Vec::new();
+        let mut member_shapes = Vec::new();
+
+        for mid in members {
+            if let Some(&idx) = g.node_index.get(mid.as_str()) {
+                let nd = &g.digraph[idx];
+                let max_line_w = nd.label.lines().map(|l| l.len()).max().unwrap_or(0) as i32;
+                let line_count = std::cmp::max(nd.label.lines().count() as i32, 1);
+                member_widths.push(max_line_w + 2 + 2 * padding);
+                member_heights.push(2 + line_count);
+                member_labels.push(nd.label.clone());
+                member_shapes.push(nd.shape.clone());
+            } else {
+                member_widths.push(3 + 2 * padding);
+                member_heights.push(3);
+                member_labels.push(mid.clone());
+                member_shapes.push("Rectangle".to_string());
+            }
+            member_to_sg.insert(mid.clone(), sg_name.clone());
+        }
+
+        let max_member_height = member_heights.iter().max().copied().unwrap_or(3);
+
+        compounds.push(CompoundInfo {
+            sg_name: sg_name.clone(),
+            compound_id,
+            member_ids: members.clone(),
+            member_widths,
+            member_heights,
+            max_member_height,
+            member_labels,
+            member_shapes,
+        });
+    }
+
+    let sg_to_compound: HashMap<String, String> = compounds
+        .iter()
+        .map(|c| (c.sg_name.clone(), c.compound_id.clone()))
+        .collect();
+
+    let resolve = |node_id: &str| -> String {
+        if let Some(sg) = member_to_sg.get(node_id) {
+            return sg_to_compound[sg].clone();
+        }
+        if let Some(cid) = sg_to_compound.get(node_id) {
+            return cid.clone();
+        }
+        node_id.to_string()
+    };
+
+    let mut collapsed = graph::graph_new();
+
+    // Add non-member, non-subgraph-name nodes
+    for (id, &idx) in &g.node_index {
+        if member_to_sg.contains_key(id.as_str()) {
+            continue;
+        }
+        if sg_to_compound.contains_key(id.as_str()) {
+            continue;
+        }
+        let nd = &g.digraph[idx];
+        graph::graph_add_node(&mut collapsed, &nd.id, &nd.label, &nd.shape, nd.subgraph.as_deref());
+    }
+
+    // Add compound nodes
+    for ci in &compounds {
+        graph::graph_add_node(&mut collapsed, &ci.compound_id, &ci.sg_name, "Rectangle", None);
+    }
+
+    // Remap edges
+    let mut added_edges: HashSet<(String, String)> = HashSet::new();
+    for edge_idx in g.digraph.edge_indices() {
+        let (src_idx, tgt_idx) = g.digraph.edge_endpoints(edge_idx).unwrap();
+        let src_id = &g.digraph[src_idx].id;
+        let tgt_id = &g.digraph[tgt_idx].id;
+        let ed = &g.digraph[edge_idx];
+
+        let actual_src = resolve(src_id);
+        let actual_tgt = resolve(tgt_id);
+
+        if actual_src == actual_tgt {
+            continue;
+        }
+        let key = (actual_src.clone(), actual_tgt.clone());
+        if added_edges.contains(&key) {
+            continue;
+        }
+        added_edges.insert(key);
+        graph::graph_add_edge(
+            &mut collapsed,
+            &actual_src,
+            &actual_tgt,
+            &ed.edge_type,
+            ed.label.as_deref(),
+        );
+    }
+
+    (collapsed, compounds)
+}
+
+/// Compute width/height overrides for compound nodes.
+fn compute_compound_dimensions(
+    compounds: &[CompoundInfo],
+) -> HashMap<String, (i32, i32)> {
+    let mut overrides = HashMap::new();
+    for ci in compounds {
+        let total_member_w: i32 = ci.member_widths.iter().sum();
+        let gaps = if ci.member_ids.len() > 1 {
+            (ci.member_ids.len() as i32 - 1) * SG_INNER_GAP
+        } else {
+            0
+        };
+        let content_w = total_member_w + gaps;
+        let title_w = ci.sg_name.len() as i32 + 4;
+        let inner_w = std::cmp::max(content_w, title_w);
+        let width = 2 + 2 * SG_PAD_X + inner_w;
+        let height = 2 + 1 + ci.max_member_height; // border top + title row + member height
+        overrides.insert(ci.compound_id.clone(), (width, height));
+    }
+    overrides
+}
+
+/// Expand compound nodes: place member nodes inside compound bounds.
+fn expand_compound_nodes(
+    nodes: &graph::NodeLayoutList,
+    compounds: &[CompoundInfo],
+) -> graph::NodeLayoutList {
+    let compound_map: HashMap<String, &CompoundInfo> = compounds
+        .iter()
+        .map(|c| (c.compound_id.clone(), c))
+        .collect();
+
+    let result = graph::nll_new();
+    let n = graph::nll_len(nodes.clone());
+
+    for i in 0..n {
+        let id = graph::nll_get_id(nodes.clone(), i);
+        let x = graph::nll_get_x(nodes.clone(), i);
+        let y = graph::nll_get_y(nodes.clone(), i);
+        let w = graph::nll_get_width(nodes.clone(), i);
+        let h = graph::nll_get_height(nodes.clone(), i);
+        let label = graph::nll_get_label(nodes.clone(), i);
+        let shape = graph::nll_get_shape(nodes.clone(), i);
+        let layer = graph::nll_get_layer(nodes.clone(), i);
+
+        graph::nll_push(result.clone(), id.clone(), layer, i, x, y, w, h, label, shape);
+
+        if let Some(ci) = compound_map.get(&id) {
+            let mut member_x = x + 1 + SG_PAD_X;
+            let member_y = y + 2; // below border + title row
+            for (j, mid) in ci.member_ids.iter().enumerate() {
+                graph::nll_push(
+                    result.clone(),
+                    mid.clone(),
+                    layer,
+                    i,
+                    member_x,
+                    member_y,
+                    ci.member_widths[j],
+                    ci.member_heights[j],
+                    ci.member_labels[j].clone(),
+                    ci.member_shapes[j].clone(),
+                );
+                member_x += ci.member_widths[j] + SG_INNER_GAP;
+            }
+        }
+    }
+
+    result
+}
+
+/// Paint a compound (subgraph container) node: border + centered title.
+fn paint_compound_node(c: &mut canvas::Canvas, x: i32, y: i32, w: i32, h: i32, sg_name: &str) {
+    let cs = c.charset.clone();
+    let bc = canvas::box_chars_for_charset(cs);
+    cdraw_box(c, x, y, w, h, &bc);
+
+    let inner_w = std::cmp::max(0, w - 2);
+    let title_pad = std::cmp::max(0, inner_w - sg_name.len() as i32) / 2;
+    let title_col = x + 1 + title_pad;
+    let title_row = y + 1;
+    cwrite_str(c, title_col, title_row, sg_name);
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /// Parse a Mermaid flowchart string and render it to ASCII/Unicode art.
@@ -1386,20 +1619,35 @@ pub fn render_dsl(
 
     // Phase 1: Build graph
     let g = ast_to_graph(&parsed);
-
-    // Phase 2: Remove cycles + assign layers
-    let (dag, reversed) = remove_cycles_rust(&g);
-    let layers = assign_layers_rust(&dag);
-
-    // Phase 3-4: Build layer ordering with crossing minimization
-    let ordering = build_ordering(&dag, &layers);
-
-    // Phase 5: Assign coordinates
     let is_lr_or_rl = direction == "LR" || direction == "RL";
-    let nodes = assign_coordinates_rust(&dag, &ordering, padding as i32, is_lr_or_rl);
 
-    // Phase 6: Route edges
-    let routed = route_edges_rust(&g, &nodes, &reversed);
+    // Check for subgraphs
+    let subgraph_members = collect_subgraph_members(&parsed);
+    let has_subgraphs = !subgraph_members.is_empty();
+
+    let (nodes, routed, compounds) = if has_subgraphs {
+        // Collapse subgraphs into compound nodes
+        let (collapsed, compounds) = collapse_subgraphs(&g, &subgraph_members, padding as i32);
+        let dim_overrides = compute_compound_dimensions(&compounds);
+
+        let (dag, reversed) = remove_cycles_rust(&collapsed);
+        let layers = assign_layers_rust(&dag);
+        let ordering = build_ordering(&dag, &layers);
+        let nodes = assign_coordinates_rust(&dag, &ordering, padding as i32, is_lr_or_rl, &dim_overrides);
+
+        // Expand compound nodes to place members inside
+        let expanded = expand_compound_nodes(&nodes, &compounds);
+        let routed = route_edges_rust(&collapsed, &expanded, &reversed);
+        (expanded, routed, compounds)
+    } else {
+        let empty_overrides = HashMap::new();
+        let (dag, reversed) = remove_cycles_rust(&g);
+        let layers = assign_layers_rust(&dag);
+        let ordering = build_ordering(&dag, &layers);
+        let nodes = assign_coordinates_rust(&dag, &ordering, padding as i32, is_lr_or_rl, &empty_overrides);
+        let routed = route_edges_rust(&g, &nodes, &reversed);
+        (nodes, routed, Vec::new())
+    };
 
     // Transpose node positions and waypoints for LR/RL so the TD layout maps
     // to a horizontal visual arrangement.
@@ -1445,8 +1693,31 @@ pub fn render_dsl(
 
     let mut c = canvas::canvas_new(max_col, max_row, cs);
 
-    // Paint nodes
+    // Build set of compound node IDs for filtering
+    let compound_ids: HashSet<String> = compounds.iter().map(|c| c.compound_id.clone()).collect();
+
+    // Paint compound containers first (behind everything)
     for i in 0..nn {
+        let id = graph::nll_get_id(nodes.clone(), i);
+        if compound_ids.contains(&id) {
+            let sg_name = &id[COMPOUND_PREFIX.len()..];
+            paint_compound_node(
+                &mut c,
+                graph::nll_get_x(nodes.clone(), i),
+                graph::nll_get_y(nodes.clone(), i),
+                graph::nll_get_width(nodes.clone(), i),
+                graph::nll_get_height(nodes.clone(), i),
+                sg_name,
+            );
+        }
+    }
+
+    // Paint regular nodes (skip compound and dummy nodes)
+    for i in 0..nn {
+        let id = graph::nll_get_id(nodes.clone(), i);
+        if id.starts_with("__dummy_") || compound_ids.contains(&id) {
+            continue;
+        }
         paint_node(
             &mut c,
             graph::nll_get_x(nodes.clone(), i),
@@ -1538,7 +1809,8 @@ pub fn render_svg_dsl(
 
     // Phase 5: Assign coordinates
     let is_lr_or_rl = direction == "LR" || direction == "RL";
-    let nodes = assign_coordinates_rust(&dag, &ordering, padding as i32, is_lr_or_rl);
+    let empty_overrides = HashMap::new();
+    let nodes = assign_coordinates_rust(&dag, &ordering, padding as i32, is_lr_or_rl, &empty_overrides);
 
     // Phase 6: Route edges
     let routed = route_edges_rust(&g, &nodes, &reversed);
