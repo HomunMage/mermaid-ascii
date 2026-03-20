@@ -9,18 +9,18 @@
 </defs>
 <rect width="840" height="520" fill="white"/>
 <rect x="20" y="20" width="580" height="120" fill="none" stroke="#888" stroke-width="1" stroke-dasharray="4 2"/>
-<text x="28" y="38" font-family="monospace" font-size="12" fill="#666">Frontend</text>
+<text x="28" y="36" font-family="monospace" font-size="12" fill="#666">Frontend</text>
 <rect x="640" y="20" width="160" height="120" fill="none" stroke="#888" stroke-width="1" stroke-dasharray="4 2"/>
-<text x="648" y="38" font-family="monospace" font-size="12" fill="#666">Worker</text>
-<rect x="320" y="200" width="150" height="120" fill="none" stroke="#888" stroke-width="1" stroke-dasharray="4 2"/>
-<text x="328" y="218" font-family="monospace" font-size="12" fill="#666">Backend</text>
-<polyline points="390,320 390,340 200,340 200,360" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
-<polyline points="390,320 390,340 380,340 380,360" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
-<polyline points="390,320 390,340 560,340 560,360" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
-<polyline points="310,140 310,160 390,160 390,180" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
-<text x="390" y="152" text-anchor="middle" font-family="monospace" font-size="12" fill="#333">HTTP</text>
-<polyline points="720,140 720,340 560,340 560,360" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
-<text x="560" y="332" text-anchor="middle" font-family="monospace" font-size="12" fill="#333">writes</text>
+<text x="648" y="36" font-family="monospace" font-size="12" fill="#666">Worker</text>
+<rect x="330" y="200" width="150" height="120" fill="none" stroke="#888" stroke-width="1" stroke-dasharray="4 2"/>
+<text x="338" y="216" font-family="monospace" font-size="12" fill="#666">Backend</text>
+<polyline points="310,140 310,160 400,160 400,180" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<text x="400" y="152" text-anchor="middle" font-family="monospace" font-size="12" fill="#333">HTTP</text>
+<polyline points="400,320 400,340 590,340 590,360" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<polyline points="400,320 400,340 410,340 410,360" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<polyline points="400,320 400,340 230,340 230,360" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<polyline points="720,140 720,220 590,220 590,360" fill="none" stroke="black" stroke-width="1.5"  marker-end="url(#arrowhead)"/>
+<text x="590" y="212" text-anchor="middle" font-family="monospace" font-size="12" fill="#333">writes</text>
 <rect x="40" y="60" width="130" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
 <text x="105" y="90" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">Grid View</text>
 <rect x="180" y="60" width="120" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
@@ -31,12 +31,12 @@
 <text x="520" y="90" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">LLM Chat</text>
 <rect x="660" y="60" width="120" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
 <text x="720" y="90" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">Git Sync</text>
-<rect x="340" y="240" width="110" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
-<text x="395" y="270" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">FastAPI</text>
-<rect x="130" y="380" width="140" height="80" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
-<text text-anchor="middle" font-family="monospace" font-size="14"><tspan x="200" y="411">Claude API</tspan><tspan x="200" y="427">tool_use</tspan></text>
-<rect x="310" y="380" width="140" height="80" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
-<text text-anchor="middle" font-family="monospace" font-size="14"><tspan x="380" y="411">Minio</tspan><tspan x="380" y="427">blob store</tspan></text>
-<rect x="490" y="380" width="140" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
-<text x="560" y="410" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">PostgreSQL</text>
+<rect x="350" y="240" width="110" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="405" y="270" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">FastAPI</text>
+<rect x="160" y="380" width="140" height="80" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text text-anchor="middle" font-family="monospace" font-size="14"><tspan x="230" y="411">Claude API</tspan><tspan x="230" y="427">tool_use</tspan></text>
+<rect x="340" y="380" width="140" height="80" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text text-anchor="middle" font-family="monospace" font-size="14"><tspan x="410" y="411">Minio</tspan><tspan x="410" y="427">blob store</tspan></text>
+<rect x="520" y="380" width="140" height="60" rx="0" fill="white" stroke="black" stroke-width="1.5"/>
+<text x="590" y="410" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="14">PostgreSQL</text>
 </svg>

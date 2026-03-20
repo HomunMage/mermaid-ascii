@@ -1,13 +1,9 @@
-//! SVG renderer — converts layout IR to an SVG string.
+//! SVG renderer — 1:1 conversion from LayoutIR primitives to SVG.
 //!
-//! Ported from legacy `src/rust/renderers/svg.rs`, adapted for the current
-//! `graph::NodeLayoutList` / `graph::EdgeRouteList` accessor API.
-//!
-//! Call `render()` after running the full layout pipeline (Phases 1–6).
-//! For LR/RL direction the caller must transpose node/edge coordinates
-//! *before* calling `render()` (same as the ASCII renderer).
+//! Each LayoutRect becomes an SVG shape, each LayoutEdge becomes a polyline.
+//! No layout logic here — just drawing.
 
-use crate::graph;
+use crate::{LayoutIR, LayoutRect, LayoutEdge};
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -16,9 +12,6 @@ const CELL_H: i32 = 20;
 const FONT_SIZE: i32 = 14;
 const FONT_FAMILY: &str = "monospace";
 const PADDING: i32 = 20;
-
-/// Node-ID prefix used by the layout algorithm for dummy/intermediate nodes.
-const DUMMY_PREFIX: &str = "__dummy_";
 
 const FILL_STROKE: &str = r#"fill="white" stroke="black" stroke-width="1.5""#;
 const SG_STROKE: &str = r##"fill="none" stroke="#888" stroke-width="1" stroke-dasharray="4 2""##;
@@ -35,17 +28,15 @@ fn font(size: i32) -> String {
     format!(r#"font-family="{FONT_FAMILY}" font-size="{size}""#)
 }
 
-/// Convert a column index to a pixel x-coordinate.
 fn px(col: i32) -> i32 {
     PADDING + col * CELL_W
 }
 
-/// Convert a row index to a pixel y-coordinate.
 fn py(row: i32) -> i32 {
     PADDING + row * CELL_H
 }
 
-// ── Edge stroke / marker helpers ─────────────────────────────────────────────
+// ── Edge helpers ─────────────────────────────────────────────────────────────
 
 fn stroke_style(et: &str) -> &'static str {
     match et {
@@ -66,20 +57,14 @@ fn is_bidir(et: &str) -> bool {
     matches!(et, "BidirArrow" | "BidirDotted" | "BidirThick")
 }
 
-// ── Shape rendering ───────────────────────────────────────────────────────────
+// ── Rect → SVG ───────────────────────────────────────────────────────────────
 
-fn render_node(x: i32, y: i32, w: i32, h: i32, label: &str, shape: &str) -> String {
-    let sx = px(x);
-    let sy = py(y);
-    let sw = w * CELL_W;
-    let sh = h * CELL_H;
-    let cx = sx + sw / 2;
-    let cy = sy + sh / 2;
+fn render_label_svg(cx: i32, cy: i32, label: &str) -> String {
     let label_esc = escape(label);
     let lines: Vec<&str> = label_esc.split('\n').collect();
     let f = font(FONT_SIZE);
 
-    let label_svg = if lines.len() == 1 {
+    if lines.len() == 1 {
         format!(
             r#"<text x="{cx}" y="{cy}" dominant-baseline="central" text-anchor="middle" {f}>{}</text>"#,
             lines[0]
@@ -96,50 +81,80 @@ fn render_node(x: i32, y: i32, w: i32, h: i32, label: &str, shape: &str) -> Stri
             })
             .collect();
         format!(r#"<text text-anchor="middle" {f}>{tspans}</text>"#)
-    };
+    }
+}
 
-    let shape_svg = match shape {
-        "Rounded" => {
-            let r = sw.min(sh) / 4;
+fn render_rect(r: &LayoutRect) -> String {
+    let sx = px(r.x);
+    let sy = py(r.y);
+    let sw = r.w * CELL_W;
+    let sh = r.h * CELL_H;
+    let cx = sx + sw / 2;
+    let cy = sy + sh / 2;
+
+    match r.shape.as_str() {
+        "Container" => {
+            // Dashed border + title at top-left
+            let f = font(FONT_SIZE - 2);
+            let ty = sy + FONT_SIZE + 2;
             format!(
-                r#"<rect x="{sx}" y="{sy}" width="{sw}" height="{sh}" rx="{r}" {FILL_STROKE}/>"#
+                r##"<rect x="{sx}" y="{sy}" width="{sw}" height="{sh}" {SG_STROKE}/>
+<text x="{}" y="{ty}" {f} fill="#666">{}</text>"##,
+                sx + 8,
+                escape(&r.label)
             )
+        }
+        "Rounded" => {
+            let rv = sw.min(sh) / 4;
+            let shape_svg = format!(
+                r#"<rect x="{sx}" y="{sy}" width="{sw}" height="{sh}" rx="{rv}" {FILL_STROKE}/>"#
+            );
+            let label_svg = render_label_svg(cx, cy, &r.label);
+            format!("{shape_svg}\n{label_svg}")
         }
         "Diamond" => {
             let pts = format!("{cx},{sy} {},{cy} {cx},{} {sx},{cy}", sx + sw, sy + sh);
-            format!(r#"<polygon points="{pts}" {FILL_STROKE}/>"#)
+            let shape_svg = format!(r#"<polygon points="{pts}" {FILL_STROKE}/>"#);
+            let label_svg = render_label_svg(cx, cy, &r.label);
+            format!("{shape_svg}\n{label_svg}")
         }
         "Circle" => {
             let rx = sw / 2;
             let ry = sh / 2;
-            format!(r#"<ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" {FILL_STROKE}/>"#)
+            let shape_svg =
+                format!(r#"<ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" {FILL_STROKE}/>"#);
+            let label_svg = render_label_svg(cx, cy, &r.label);
+            format!("{shape_svg}\n{label_svg}")
         }
         _ => {
             // Rectangle (default)
-            format!(r#"<rect x="{sx}" y="{sy}" width="{sw}" height="{sh}" rx="0" {FILL_STROKE}/>"#)
+            let shape_svg = format!(
+                r#"<rect x="{sx}" y="{sy}" width="{sw}" height="{sh}" rx="0" {FILL_STROKE}/>"#
+            );
+            let label_svg = render_label_svg(cx, cy, &r.label);
+            format!("{shape_svg}\n{label_svg}")
         }
-    };
-
-    format!("{shape_svg}\n{label_svg}")
+    }
 }
 
-// ── Edge rendering ────────────────────────────────────────────────────────────
+// ── Edge → SVG ───────────────────────────────────────────────────────────────
 
-fn render_edge(waypoints: &[(i32, i32)], edge_type: &str, label: &str) -> String {
-    if waypoints.len() < 2 {
+fn render_edge(e: &LayoutEdge) -> String {
+    if e.waypoints.len() < 2 {
         return String::new();
     }
 
-    let style = stroke_style(edge_type);
+    let style = stroke_style(&e.edge_type);
     let mut markers = String::new();
-    if is_arrow(edge_type) {
+    if is_arrow(&e.edge_type) {
         markers.push_str(r#" marker-end="url(#arrowhead)""#);
     }
-    if is_bidir(edge_type) {
+    if is_bidir(&e.edge_type) {
         markers.push_str(r#" marker-start="url(#arrowhead-rev)""#);
     }
 
-    let pts: String = waypoints
+    let pts: String = e
+        .waypoints
         .iter()
         .map(|(x, y)| format!("{},{}", px(*x), py(*y)))
         .collect::<Vec<_>>()
@@ -149,153 +164,38 @@ fn render_edge(waypoints: &[(i32, i32)], edge_type: &str, label: &str) -> String
         r#"<polyline points="{pts}" fill="none" stroke="black" stroke-width="1.5" {style}{markers}/>"#
     )];
 
-    if !label.is_empty() {
-        let mid = waypoints.len() / 2;
-        let (lx, ly) = waypoints[mid];
+    if !e.label.is_empty() {
+        let mid = e.waypoints.len() / 2;
+        let (lx, ly) = e.waypoints[mid];
         let lsx = px(lx);
         let lsy = py(ly) - 8;
         let f = font(FONT_SIZE - 2);
         parts.push(format!(
             r##"<text x="{lsx}" y="{lsy}" text-anchor="middle" {f} fill="#333">{}</text>"##,
-            escape(label)
+            escape(&e.label)
         ));
     }
 
     parts.join("\n")
 }
 
-// ── Subgraph borders ──────────────────────────────────────────────────────────
+// ── Public API ───────────────────────────────────────────────────────────────
 
-/// (from_id, to_id, waypoints, edge_type, label)
-type EdgeEntry = (String, String, Vec<(i32, i32)>, String, String);
-
-struct NodePos {
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-}
-
-fn render_subgraph_borders(
-    subgraph_members: &[(String, Vec<String>)],
-    node_positions: &std::collections::HashMap<String, NodePos>,
-) -> String {
-    let mut parts = Vec::new();
-
-    for (sg_name, members) in subgraph_members {
-        if members.is_empty() {
-            continue;
-        }
-
-        let mut min_x = i32::MAX;
-        let mut min_y = i32::MAX;
-        let mut max_x = i32::MIN;
-        let mut max_y = i32::MIN;
-
-        for member_id in members {
-            if let Some(np) = node_positions.get(member_id.as_str()) {
-                let npx = px(np.x);
-                let npy = py(np.y);
-                let npw = np.width * CELL_W;
-                let nph = np.height * CELL_H;
-                min_x = min_x.min(npx);
-                min_y = min_y.min(npy);
-                max_x = max_x.max(npx + npw);
-                max_y = max_y.max(npy + nph);
-            }
-        }
-
-        if min_x == i32::MAX {
-            continue;
-        }
-
-        let margin = 15i32;
-        let bx = min_x - margin;
-        let by = min_y - margin;
-        let bw = max_x - min_x + 2 * margin;
-        let bh = max_y - min_y + 2 * margin;
-        let f = font(FONT_SIZE - 2);
-        let ty = by + FONT_SIZE + 2;
-
-        parts.push(format!(
-            r#"<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" {SG_STROKE}/>"#
-        ));
-        parts.push(format!(
-            r##"<text x="{}" y="{ty}" {f} fill="#666">{}</text>"##,
-            bx + 8,
-            escape(sg_name)
-        ));
-    }
-
-    parts.join("\n")
-}
-
-// ── Public API ────────────────────────────────────────────────────────────────
-
-/// Render laid-out graph data to an SVG string.
-///
-/// `nodes` and `edges` must already be transposed for LR/RL direction
-/// (call `transpose_layout` first — same contract as the ASCII renderer).
-///
-/// `direction` controls the SVG `<g>` transform applied for BT/RL:
-/// - `"BT"` → `translate(0,H) scale(1,-1)`
-/// - `"RL"` → `translate(W,0) scale(-1,1)`
-/// - `"LR"` / `"TD"` → no extra transform (layout already correct)
-///
-/// `subgraph_members` is a slice of `(subgraph_name, [member_node_ids])` pairs
-/// used to draw dashed border boxes around each subgraph.
-pub fn render(
-    nodes: &graph::NodeLayoutList,
-    edges: &graph::EdgeRouteList,
-    direction: &str,
-    subgraph_members: &[(String, Vec<String>)],
-) -> String {
-    let nn = graph::nll_len(nodes.clone());
-    let en = graph::erl_len(edges.clone());
-
-    if nn == 0 {
+/// 1:1 render LayoutIR → SVG string. No layout logic, just drawing.
+pub fn render_ir(ir: &LayoutIR, direction: &str) -> String {
+    if ir.rects.is_empty() {
         return String::new();
     }
 
-    // Build a fast node-id → position map for subgraph border rendering.
-    let mut node_positions: std::collections::HashMap<String, NodePos> =
-        std::collections::HashMap::new();
-    for i in 0..nn {
-        let id = graph::nll_get_id(nodes.clone(), i);
-        if id.starts_with(DUMMY_PREFIX) {
-            continue;
-        }
-        node_positions.insert(
-            id,
-            NodePos {
-                x: graph::nll_get_x(nodes.clone(), i),
-                y: graph::nll_get_y(nodes.clone(), i),
-                width: graph::nll_get_width(nodes.clone(), i),
-                height: graph::nll_get_height(nodes.clone(), i),
-            },
-        );
-    }
-
-    // Compute canvas size in character-cell units.
+    // Compute canvas size from IR primitives
     let mut max_col: i32 = 0;
     let mut max_row: i32 = 0;
-    for i in 0..nn {
-        let id = graph::nll_get_id(nodes.clone(), i);
-        if id.starts_with(DUMMY_PREFIX) {
-            continue;
-        }
-        let x = graph::nll_get_x(nodes.clone(), i);
-        let y = graph::nll_get_y(nodes.clone(), i);
-        let w = graph::nll_get_width(nodes.clone(), i);
-        let h = graph::nll_get_height(nodes.clone(), i);
-        max_col = max_col.max(x + w + 2);
-        max_row = max_row.max(y + h + 2);
+    for r in &ir.rects {
+        max_col = max_col.max(r.x + r.w + 2);
+        max_row = max_row.max(r.y + r.h + 2);
     }
-    for ei in 0..en {
-        let wpc = graph::erl_get_waypoint_count(edges.clone(), ei);
-        for wi in 0..wpc {
-            let wx = graph::erl_get_waypoint_x(edges.clone(), ei, wi);
-            let wy = graph::erl_get_waypoint_y(edges.clone(), ei, wi);
+    for e in &ir.edges {
+        for &(wx, wy) in &e.waypoints {
             max_col = max_col.max(wx + 2);
             max_row = max_row.max(wy + 2);
         }
@@ -329,52 +229,26 @@ pub fn render(
         parts.push(transform);
     }
 
-    // Subgraph borders (drawn first, behind everything).
-    if !subgraph_members.is_empty() {
-        let borders = render_subgraph_borders(subgraph_members, &node_positions);
-        if !borders.is_empty() {
-            parts.push(borders);
+    // Draw containers first (behind everything)
+    for r in &ir.rects {
+        if r.shape == "Container" {
+            parts.push(render_rect(r));
         }
     }
 
-    // Edges (behind nodes) — collect and sort for deterministic output.
-    let mut edge_data: Vec<EdgeEntry> = Vec::new();
-    for ei in 0..en {
-        let from_id = graph::erl_get_from(edges.clone(), ei);
-        let to_id = graph::erl_get_to(edges.clone(), ei);
-        let etype = graph::erl_get_etype(edges.clone(), ei);
-        let label = graph::erl_get_label(edges.clone(), ei);
-        let wpc = graph::erl_get_waypoint_count(edges.clone(), ei);
-        let mut wps = Vec::new();
-        for wi in 0..wpc {
-            wps.push((
-                graph::erl_get_waypoint_x(edges.clone(), ei, wi),
-                graph::erl_get_waypoint_y(edges.clone(), ei, wi),
-            ));
-        }
-        edge_data.push((from_id, to_id, wps, etype, label));
-    }
-    edge_data.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
-    for (_, _, wps, etype, label) in &edge_data {
-        let svg = render_edge(wps, etype, label);
+    // Draw edges (behind nodes)
+    for e in &ir.edges {
+        let svg = render_edge(e);
         if !svg.is_empty() {
             parts.push(svg);
         }
     }
 
-    // Nodes (on top of edges).
-    for i in 0..nn {
-        let id = graph::nll_get_id(nodes.clone(), i);
-        if id.starts_with(DUMMY_PREFIX) {
-            continue;
+    // Draw nodes on top
+    for r in &ir.rects {
+        if r.shape != "Container" {
+            parts.push(render_rect(r));
         }
-        let x = graph::nll_get_x(nodes.clone(), i);
-        let y = graph::nll_get_y(nodes.clone(), i);
-        let w = graph::nll_get_width(nodes.clone(), i);
-        let h = graph::nll_get_height(nodes.clone(), i);
-        let label = graph::nll_get_label(nodes.clone(), i);
-        let shape = graph::nll_get_shape(nodes.clone(), i);
-        parts.push(render_node(x, y, w, h, &label, &shape));
     }
 
     if direction == "BT" || direction == "RL" {

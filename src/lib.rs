@@ -1284,6 +1284,71 @@ fn paint_exit_stubs(
     }
 }
 
+/// Paint exit stubs using LayoutIR primitives (no NodeLayoutList/EdgeRouteList).
+fn paint_exit_stubs_ir(c: &mut canvas::Canvas, ir: &LayoutIR) {
+    let cs = c.charset.clone();
+
+    for edge in &ir.edges {
+        if edge.waypoints.is_empty() {
+            continue;
+        }
+        let (first_wp_x, first_wp_y) = edge.waypoints[0];
+
+        // Find the source rect that contains/borders the first waypoint
+        // (the rect whose border is closest to the first waypoint)
+        let mut best: Option<&LayoutRect> = None;
+        let mut best_dist = i32::MAX;
+        for r in &ir.rects {
+            // Check if the waypoint is just outside one of the rect's borders
+            let cx = r.x + r.w / 2;
+            let cy = r.y + r.h / 2;
+            let dist = (first_wp_x - cx).abs() + (first_wp_y - cy).abs();
+            let on_border = (first_wp_y >= r.y + r.h && first_wp_y <= r.y + r.h + 1)
+                || (first_wp_y < r.y && first_wp_y >= r.y - 1)
+                || (first_wp_x >= r.x + r.w && first_wp_x <= r.x + r.w + 1)
+                || (first_wp_x < r.x && first_wp_x >= r.x - 1);
+            if on_border && dist < best_dist {
+                best_dist = dist;
+                best = Some(r);
+            }
+        }
+
+        let r = match best {
+            Some(r) => r,
+            None => continue,
+        };
+
+        let center_x = r.x + r.w / 2;
+        let center_y = r.y + r.h / 2;
+
+        let (stub_x, stub_y, arm_dir) = if first_wp_y >= r.y + r.h {
+            (center_x, r.y + r.h - 1, "down")
+        } else if first_wp_y < r.y {
+            (center_x, r.y, "up")
+        } else if first_wp_x >= r.x + r.w {
+            (r.x + r.w - 1, center_y, "right")
+        } else if first_wp_x < r.x {
+            (r.x, center_y, "left")
+        } else {
+            (center_x, r.y + r.h - 1, "down")
+        };
+
+        let existing = cget(c, stub_x, stub_y);
+        let ea = canvas::arms_from_char(existing);
+        if ea.valid {
+            let mut merged = ea.clone();
+            match arm_dir {
+                "down" => merged.down = true,
+                "up" => merged.up = true,
+                "right" => merged.right = true,
+                "left" => merged.left = true,
+                _ => {}
+            }
+            cset(c, stub_x, stub_y, canvas::arms_to_char(merged, cs.clone()));
+        }
+    }
+}
+
 fn transpose_layout(nodes: &graph::NodeLayoutList, edges: &graph::EdgeRouteList) {
     for n in nodes.borrow_mut().iter_mut() {
         std::mem::swap(&mut n.x, &mut n.y);
@@ -1618,104 +1683,46 @@ pub fn render_dsl(
     let direction = _direction.unwrap_or(parsed_direction);
 
     let ir = run_layout_pipeline(&parsed, padding, direction);
-    let nodes = ir.nodes;
-    let routed = ir.routed;
-    let compounds = ir.compounds;
 
-    // Render to canvas
+    // 1:1 IR → canvas (no logic, just draw primitives)
     let cs = if unicode {
         canvas::CharSet::Unicode
     } else {
         canvas::CharSet::Ascii
     };
 
-    // Canvas dimensions
-    let nn = graph::nll_len(nodes.clone());
-    let en = graph::erl_len(routed.clone());
     let mut max_col: i32 = 40;
     let mut max_row: i32 = 10;
-    for i in 0..nn {
-        let r = graph::nll_get_x(nodes.clone(), i) + graph::nll_get_width(nodes.clone(), i) + 2;
-        let b = graph::nll_get_y(nodes.clone(), i) + graph::nll_get_height(nodes.clone(), i) + 4;
-        if r > max_col {
-            max_col = r;
-        }
-        if b > max_row {
-            max_row = b;
-        }
+    for r in &ir.rects {
+        max_col = max_col.max(r.x + r.w + 2);
+        max_row = max_row.max(r.y + r.h + 4);
     }
-    for i in 0..en {
-        let wpc = graph::erl_get_waypoint_count(routed.clone(), i);
-        for j in 0..wpc {
-            let wx = graph::erl_get_waypoint_x(routed.clone(), i, j) + 4;
-            let wy = graph::erl_get_waypoint_y(routed.clone(), i, j) + 4;
-            if wx > max_col {
-                max_col = wx;
-            }
-            if wy > max_row {
-                max_row = wy;
-            }
+    for e in &ir.edges {
+        for &(wx, wy) in &e.waypoints {
+            max_col = max_col.max(wx + 4);
+            max_row = max_row.max(wy + 4);
         }
     }
 
     let mut c = canvas::canvas_new(max_col, max_row, cs);
 
-    // Build set of compound node IDs for filtering
-    let compound_ids: HashSet<String> = compounds.iter().map(|c| c.compound_id.clone()).collect();
-
-    // Paint compound containers first (behind everything)
-    for i in 0..nn {
-        let id = graph::nll_get_id(nodes.clone(), i);
-        if compound_ids.contains(&id) {
-            let sg_name = &id[COMPOUND_PREFIX.len()..];
-            paint_compound_node(
-                &mut c,
-                graph::nll_get_x(nodes.clone(), i),
-                graph::nll_get_y(nodes.clone(), i),
-                graph::nll_get_width(nodes.clone(), i),
-                graph::nll_get_height(nodes.clone(), i),
-                sg_name,
-            );
+    // Draw containers first (behind), then nodes on top
+    for r in &ir.rects {
+        if r.shape == "Container" {
+            paint_compound_node(&mut c, r.x, r.y, r.w, r.h, &r.label);
+        }
+    }
+    for r in &ir.rects {
+        if r.shape != "Container" {
+            paint_node(&mut c, r.x, r.y, r.w, r.h, &r.label, &r.shape);
         }
     }
 
-    // Paint regular nodes (skip compound and dummy nodes)
-    for i in 0..nn {
-        let id = graph::nll_get_id(nodes.clone(), i);
-        if id.starts_with("__dummy_") || compound_ids.contains(&id) {
-            continue;
-        }
-        paint_node(
-            &mut c,
-            graph::nll_get_x(nodes.clone(), i),
-            graph::nll_get_y(nodes.clone(), i),
-            graph::nll_get_width(nodes.clone(), i),
-            graph::nll_get_height(nodes.clone(), i),
-            &graph::nll_get_label(nodes.clone(), i),
-            &graph::nll_get_shape(nodes.clone(), i),
-        );
+    for e in &ir.edges {
+        paint_edge(&mut c, &e.waypoints, &e.edge_type, &e.label);
     }
 
-    // Paint edges
-    for i in 0..en {
-        let wpc = graph::erl_get_waypoint_count(routed.clone(), i);
-        let mut wps: Vec<(i32, i32)> = Vec::new();
-        for j in 0..wpc {
-            wps.push((
-                graph::erl_get_waypoint_x(routed.clone(), i, j),
-                graph::erl_get_waypoint_y(routed.clone(), i, j),
-            ));
-        }
-        paint_edge(
-            &mut c,
-            &wps,
-            &graph::erl_get_etype(routed.clone(), i),
-            &graph::erl_get_label(routed.clone(), i),
-        );
-    }
-
-    // Paint exit stubs
-    paint_exit_stubs(&mut c, &routed, &nodes);
+    paint_exit_stubs_ir(&mut c, &ir);
 
     // Render canvas to string (implemented directly to avoid .hom codegen issues)
     let mut rendered = {
@@ -1875,12 +1882,7 @@ pub fn render_svg_dsl(
 
     let ir = run_layout_pipeline(&parsed, padding, direction);
 
-    Ok(svg_renderer::render(
-        &ir.nodes,
-        &ir.routed,
-        direction,
-        &ir.subgraph_members,
-    ))
+    Ok(svg_renderer::render_ir(&ir, direction))
 }
 
 // ── WASM bindings ───────────────────────────────────────────────────────────
