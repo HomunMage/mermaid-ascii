@@ -1,0 +1,27 @@
+# mermaid-ascii: Kill Rc<RefCell<>> — Replace with :: params
+
+Goal: Replace layout_state.rs Rc<RefCell<>> wrappers with plain collections + :: (mutable reference) params in layout.hom. This eliminates ~919 lines of boilerplate .rs code.
+
+Reference: pathfinder.hom already uses :: params with grid_data.rs/path_state.rs as the proven pattern.
+
+## Phase 1: Simple leaf types (no dependencies between tickets)
+
+- [x] T1: Convert DegMap — Rc<RefCell<HashMap<String,i32>>> → plain struct with :: params. ~120 lines killed in layout_state.rs. Used 24 times in layout.hom (greedy_fas, remove_cycles, assign_layers).
+- [x] T2: Convert NodeSet — Rc<RefCell<HashSet<String>>> → plain struct with :: params. ~80 lines killed. Used 10 times in layout.hom (greedy_fas, remove_cycles).
+- [ ] T3: Convert StrList — Rc<RefCell<Vec<String>>> → plain struct with :: params. ~80 lines killed. Used 50 times in layout.hom (greedy_fas ordering, layer building, crossing minimization).
+- [ ] T4: Convert EdgePairList — Rc<RefCell<Vec<(String,String)>>> → plain struct with :: params. ~80 lines killed. Used 4 times in layout.hom (remove_cycles reversed edges).
+- [ ] T5: Convert PosMap — Rc<RefCell<HashMap<String,i32>>> → plain struct with :: params. ~30 lines killed. Used 3 times in layout.hom (coordinate assignment).
+- [ ] T6: Convert FloatMap — Rc<RefCell<HashMap<String,f32>>> → plain struct with :: params. ~30 lines killed. Used 2 times in layout.hom (barycenter averages).
+- [ ] T7: Convert IntList — Rc<RefCell<Vec<i32>>> → plain struct with :: params. ~30 lines killed. Used 12 times in layout.hom (layer widths, crossing counts).
+
+## Phase 2: Compound types (depend on Phase 1)
+
+- [ ] T8: Convert EdgeInfoList — Rc<RefCell<Vec<(String,String,String,String)>>> → plain struct with :: params. ~60 lines killed. Used 16 times in layout.hom (dummy node insertion).
+- [ ] T9: Convert OrderingList — Rc<RefCell<Vec<StrList>>> → plain struct (now Vec<Vec<String>> since StrList is plain). ~80 lines killed. Used 43 times in layout.hom (crossing minimization).
+- [ ] T10: Convert DummyEdgeList — Rc<RefCell<Vec<DummyEdgeInfo>>> → plain struct with :: params. ~60 lines killed. Used 7 times in layout.hom (dummy edge tracking).
+- [ ] T11: Convert MutableGraph — Rc<RefCell<Graph>> → Graph with :: params. ~100 lines killed. Used 0 times directly in layout.hom (check if still needed in lib.rs pipeline, may be dead code).
+
+## Phase 3: Cleanup
+
+- [ ] T12: Remove dead code from layout_state.rs — after all conversions, delete unused Rc<RefCell<>> types, imports, and helper functions. Run cargo test to verify.
+- [ ] T13: Final verification — cargo test, cargo clippy, cargo fmt. Ensure all examples/ golden files still match.
