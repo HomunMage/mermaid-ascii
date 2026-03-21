@@ -273,7 +273,7 @@ remove_cycles := (g: Graph) -> (Graph, EdgePairList) {
       tgt_pos := pos_map_get(pos, tgt)
       is_self := src == tgt
       if (is_self or src_pos > tgt_pos) {
-        edge_pair_list_add(reversed, src, tgt)
+        reversed := edge_pair_list_add(reversed, src, tgt)
       }
       ei := ei + 1
     }

@@ -39,9 +39,9 @@
 //     str_list_get(sl, idx)      -> String
 //     str_list_extend_reversed(dst, src)  -> StrList   // append reversed(src) to dst
 //
-//   EdgePairList = Rc<RefCell<Vec<(String, String)>>>
+//   EdgePairList = plain struct { inner: Vec<(String, String)> }
 //     edge_pair_list_new()       -> EdgePairList
-//     edge_pair_list_add(epl, src, tgt)
+//     edge_pair_list_add(epl, src, tgt) -> EdgePairList
 //     edge_pair_list_contains(epl, src, tgt) -> bool
 //     edge_pair_list_len(epl)    -> i32
 //     edge_pair_list_get_src(epl, idx) -> String
@@ -226,30 +226,34 @@ pub fn str_list_extend_reversed(mut dst: StrList, src: StrList) -> StrList {
 
 // ── EdgePairList ──────────────────────────────────────────────────────────────
 
-pub type EdgePairList = std::rc::Rc<std::cell::RefCell<Vec<(String, String)>>>;
-
-pub fn edge_pair_list_new() -> EdgePairList {
-    std::rc::Rc::new(std::cell::RefCell::new(Vec::new()))
+#[derive(Clone, Debug, PartialEq)]
+pub struct EdgePairList {
+    pub inner: Vec<(String, String)>,
 }
 
-pub fn edge_pair_list_add(epl: EdgePairList, src: String, tgt: String) {
-    epl.borrow_mut().push((src, tgt));
+pub fn edge_pair_list_new() -> EdgePairList {
+    EdgePairList { inner: Vec::new() }
+}
+
+pub fn edge_pair_list_add(mut epl: EdgePairList, src: String, tgt: String) -> EdgePairList {
+    epl.inner.push((src, tgt));
+    epl
 }
 
 pub fn edge_pair_list_contains(epl: EdgePairList, src: String, tgt: String) -> bool {
-    epl.borrow().contains(&(src, tgt))
+    epl.inner.contains(&(src, tgt))
 }
 
 pub fn edge_pair_list_len(epl: EdgePairList) -> i32 {
-    epl.borrow().len() as i32
+    epl.inner.len() as i32
 }
 
 pub fn edge_pair_list_get_src(epl: EdgePairList, idx: i32) -> String {
-    epl.borrow()[idx as usize].0.clone()
+    epl.inner[idx as usize].0.clone()
 }
 
 pub fn edge_pair_list_get_tgt(epl: EdgePairList, idx: i32) -> String {
-    epl.borrow()[idx as usize].1.clone()
+    epl.inner[idx as usize].1.clone()
 }
 
 // ── EdgeInfoList ──────────────────────────────────────────────────────────────
