@@ -10,3 +10,5 @@
 [W1] T8: EdgeInfoList already converted to plain struct (commit 8d32994); updated stale header comment from Rc<RefCell<...>> to plain struct; marked ticket done — src/graph/layout_state.rs
 [W1] T10: Converted DummyEdgeList from Rc<RefCell<Vec<DummyEdgeInfo>>> to plain struct with return-value mutation; dummy_edge_list_add now returns DummyEdgeList; updated 7 call sites in layout.hom (insert_dummy_nodes) to rebind — src/graph/layout_state.rs, src/layout.hom
 [W1] T11: Converted MutableGraph from Rc<RefCell<Graph>> to plain struct with return-value mutation; mgraph_add_node_full/mgraph_add_edge_full now return MutableGraph; updated 9 call sites in layout.hom (remove_cycles, insert_dummy_nodes) to rebind — src/graph/layout_state.rs, src/layout.hom
+[W1] T12: Removed dead code from layout_state.rs — deleted float_map_new and float_map_get_or_inf (unused after T6 conversion); updated stale header comment — src/graph/layout_state.rs
+[W1] T13: Final verification — cargo test, cargo clippy, cargo fmt all pass; golden file examples verified — no files changed

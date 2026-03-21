@@ -23,5 +23,5 @@ Reference: pathfinder.hom already uses :: params with grid_data.rs/path_state.rs
 
 ## Phase 3: Cleanup
 
-- [ ] T12: Remove dead code from layout_state.rs — after all conversions, delete unused Rc<RefCell<>> types, imports, and helper functions. Run cargo test to verify.
-- [ ] T13: Final verification — cargo test, cargo clippy, cargo fmt. Ensure all examples/ golden files still match.
+- [x] T12: Remove dead code from layout_state.rs — after all conversions, delete unused Rc<RefCell<>> types, imports, and helper functions. Run cargo test to verify.
+- [x] T13: Final verification — cargo test, cargo clippy, cargo fmt. Ensure all examples/ golden files still match.
