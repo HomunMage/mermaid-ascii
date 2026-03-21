@@ -58,8 +58,13 @@ fn generate_runtime() {
 
     // re.rs — regex helpers
     let re = std::fs::read_to_string(hom.join("re.rs")).unwrap();
-    // heap.rs — BinaryHeap helpers
-    let heap = std::fs::read_to_string(hom.join("heap.rs")).unwrap();
+    // heap.rs — BinaryHeap helpers (strip duplicate RefCell import)
+    let heap: String = std::fs::read_to_string(hom.join("heap.rs"))
+        .unwrap()
+        .lines()
+        .filter(|l| l.trim() != "use std::cell::RefCell;")
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let code = format!(
         "// ── builtin ────────────────────────────────────────────────\n\
