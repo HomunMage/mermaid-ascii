@@ -16,7 +16,7 @@ Reference: pathfinder.hom already uses :: params with grid_data.rs/path_state.rs
 
 ## Phase 2: Compound types (depend on Phase 1)
 
-- [ ] T8: Convert EdgeInfoList — Rc<RefCell<Vec<(String,String,String,String)>>> → plain struct with :: params. ~60 lines killed. Used 16 times in layout.hom (dummy node insertion).
+- [x] T8: Convert EdgeInfoList — Rc<RefCell<Vec<(String,String,String,String)>>> → plain struct with :: params. ~60 lines killed. Used 16 times in layout.hom (dummy node insertion).
 - [x] T9: Convert OrderingList — Rc<RefCell<Vec<StrList>>> → plain struct (now Vec<Vec<String>> since StrList is plain). ~80 lines killed. Used 43 times in layout.hom (crossing minimization).
 - [ ] T10: Convert DummyEdgeList — Rc<RefCell<Vec<DummyEdgeInfo>>> → plain struct with :: params. ~60 lines killed. Used 7 times in layout.hom (dummy edge tracking).
 - [ ] T11: Convert MutableGraph — Rc<RefCell<Graph>> → Graph with :: params. ~100 lines killed. Used 0 times directly in layout.hom (check if still needed in lib.rs pipeline, may be dead code).

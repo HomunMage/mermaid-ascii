@@ -47,7 +47,7 @@
 //     edge_pair_list_get_src(epl, idx) -> String
 //     edge_pair_list_get_tgt(epl, idx) -> String
 //
-//   EdgeInfoList = Rc<RefCell<Vec<(String, String, String, String)>>>
+//   EdgeInfoList = plain struct { inner: Vec<(String, String, String, String)> } (Clone)
 //     (from_id, to_id, edge_type, label)  — label="" means no label
 //     edge_info_len(el)          -> i32
 //     edge_info_src(el, idx)     -> String
