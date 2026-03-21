@@ -60,6 +60,21 @@
 				</svg>
 				https://github.com/HomunMage/mermaid-ascii
 			</a>
+			<select id="examples" class="bg-ctrl border-bdr rounded-md border px-3 py-1 text-[13px] text-[#c9d1d9]">
+				<option value="">— examples —</option>
+				<option value="simple">simple</option>
+				<option value="flowchart">flowchart</option>
+				<option value="pipeline">pipeline</option>
+				<option value="diamond">diamond</option>
+				<option value="shapes">shapes</option>
+				<option value="edges">edges</option>
+				<option value="subgraph">subgraph</option>
+				<option value="architecture">architecture</option>
+				<option value="multiline">multiline</option>
+				<option value="lr_simple">lr_simple</option>
+				<option value="lr_fanout">lr_fanout</option>
+				<option value="bt_simple">bt_simple</option>
+			</select>
 			<div class="flex items-center gap-2.5">
 				<label class="text-[13px] text-[#8b949e]"
 					>Padding
@@ -284,7 +299,27 @@ graph TD
 				document.body.style.cssText = '';
 			});
 
-			load();
+			// ── Example loader (like Homun-Lang) ─────────────────────
+			const EXAMPLE_NAMES = ['simple','flowchart','pipeline','diamond','shapes','edges','subgraph','architecture','multiline','lr_simple','lr_fanout','bt_simple'];
+			const EXAMPLES = {};
+
+			async function loadExamples() {
+				await Promise.all(EXAMPLE_NAMES.map(async name => {
+					try {
+						const resp = await fetch(`examples/${name}.mm.md`);
+						if (resp.ok) EXAMPLES[name] = await resp.text();
+					} catch(e) { console.warn(`Failed to load example: ${name}`, e); }
+				}));
+			}
+
+			$('examples').addEventListener('change', (e) => {
+				const ex = EXAMPLES[e.target.value];
+				if (ex) { input.value = ex; doRender(); }
+			});
+
+			(async () => {
+				await Promise.all([load(), loadExamples()]);
+			})();
 		</script>
 	</body>
 </html>

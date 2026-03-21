@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Generate output for all examples and verify against .expect.txt/.expect.svg files.
-# Usage: bash examples/gen.sh          # generate only
-#        bash examples/gen.sh --check  # generate + verify against .expect.txt and .expect.svg
+# Usage: bash _site/examples/gen.sh          # generate only
+#        bash _site/examples/gen.sh --check  # generate + verify against .expect.txt and .expect.svg
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 CHECK=false
 if [[ "${1:-}" == "--check" ]]; then
@@ -17,11 +17,11 @@ cargo build --release
 BINARY="./target/release/mermaid-ascii"
 
 # Remove old generated files
-find examples -name '*.out.txt' -delete 2>/dev/null || true
-find examples -name '*.out.svg' -delete 2>/dev/null || true
+find _site/examples -name '*.out.txt' -delete 2>/dev/null || true
+find _site/examples -name '*.out.svg' -delete 2>/dev/null || true
 
 # Process all .mm.md files recursively
-find examples -name '*.mm.md' | sort | while read -r src; do
+find _site/examples -name '*.mm.md' | sort | while read -r src; do
     out_txt="${src%.mm.md}.out.txt"
     out_svg="${src%.mm.md}.out.svg"
     echo "  $src -> $out_txt"
@@ -32,7 +32,7 @@ done
 
 echo ""
 echo "Done. Generated output:"
-find examples -name '*.out.txt' -o -name '*.out.svg' | sort | while read -r f; do
+find _site/examples -name '*.out.txt' -o -name '*.out.svg' | sort | while read -r f; do
     echo "  $f"
 done
 
@@ -43,7 +43,7 @@ if $CHECK; then
     echo ""
     echo "Checking against .expect.txt files..."
     FAIL=0
-    for expect in examples/*.expect.txt; do
+    for expect in _site/examples/*.expect.txt; do
         base="${expect%.expect.txt}"
         out="${base}.out.txt"
         if [[ ! -f "$out" ]]; then
@@ -71,7 +71,7 @@ if $CHECK; then
     echo ""
     echo "Checking against .expect.svg files..."
     FAIL=0
-    for expect in examples/*.expect.svg; do
+    for expect in _site/examples/*.expect.svg; do
         base="${expect%.expect.svg}"
         out="${base}.out.svg"
         if [[ ! -f "$out" ]]; then

@@ -1,4 +1,4 @@
-//! Integration test: run ALL examples/*.mm.md through the full pipeline
+//! Integration test: run ALL _site/examples/*.mm.md through the full pipeline
 //! and compare output against .expect.txt and .expect.svg golden files.
 
 use mermaid_ascii::{render_dsl, render_svg_dsl};
@@ -7,11 +7,11 @@ use std::path::Path;
 
 #[test]
 fn test_all_examples_txt() {
-    let examples_dir = Path::new("examples");
+    let examples_dir = Path::new("_site/examples");
     let mut tested = 0;
     let mut failures = Vec::new();
 
-    for entry in fs::read_dir(examples_dir).expect("examples/ dir must exist") {
+    for entry in fs::read_dir(examples_dir).expect("_site/examples/ dir must exist") {
         let entry = entry.unwrap();
         let path = entry.path();
         if path.extension().map_or(true, |e| e != "md") {
@@ -48,11 +48,11 @@ fn test_all_examples_txt() {
 
 #[test]
 fn test_all_examples_svg() {
-    let examples_dir = Path::new("examples");
+    let examples_dir = Path::new("_site/examples");
     let mut tested = 0;
     let mut failures = Vec::new();
 
-    for entry in fs::read_dir(examples_dir).expect("examples/ dir must exist") {
+    for entry in fs::read_dir(examples_dir).expect("_site/examples/ dir must exist") {
         let entry = entry.unwrap();
         let path = entry.path();
         if path.extension().map_or(true, |e| e != "md") {
