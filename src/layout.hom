@@ -667,7 +667,7 @@ assign_coordinates := (ordering: OrderingList, aug: AugmentedGraph, padding: int
   layer_max_h := int_list_new()
   li := 0
   while (li < lc) {
-    int_list_push(layer_max_h, c_node_height)
+    layer_max_h := int_list_push(layer_max_h, c_node_height)
     li := li + 1
   }
 
@@ -689,7 +689,7 @@ assign_coordinates := (ordering: OrderingList, aug: AugmentedGraph, padding: int
         line_count := len(lines)
         nh := 2 + line_count
         if (nh > int_list_get(layer_max_h, li)) {
-          int_list_set(layer_max_h, li, nh)
+          layer_max_h := int_list_set(layer_max_h, li, nh)
         }
       }
       lj := lj + 1
@@ -702,7 +702,7 @@ assign_coordinates := (ordering: OrderingList, aug: AugmentedGraph, padding: int
   cy := 0
   li := 0
   while (li < lc) {
-    int_list_push(layer_y, cy)
+    layer_y := int_list_push(layer_y, cy)
     cy := cy + int_list_get(layer_max_h, li) + c_v_gap
     li := li + 1
   }
@@ -738,7 +738,7 @@ assign_coordinates := (ordering: OrderingList, aug: AugmentedGraph, padding: int
     if (ln > 1) {
       gaps := (ln - 1) * c_h_gap
     }
-    int_list_push(layer_total_w, w_sum + gaps)
+    layer_total_w := int_list_push(layer_total_w, w_sum + gaps)
     li := li + 1
   }
 

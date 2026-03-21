@@ -901,28 +901,31 @@ pub fn erl_get_waypoint_y(el: EdgeRouteList, edge_idx: i32, wp_idx: i32) -> i32 
 }
 
 // ── IntList ─────────────────────────────────────────────────────────────────
-// Simple interior-mutable Vec<i32> for Phase 5 layer height/width arrays.
+// Plain Vec<i32> wrapper for Phase 5 layer height/width arrays.
 
-pub type IntList = std::rc::Rc<std::cell::RefCell<Vec<i32>>>;
+#[derive(Clone)]
+pub struct IntList { pub inner: Vec<i32> }
 
 pub fn int_list_new() -> IntList {
-    std::rc::Rc::new(std::cell::RefCell::new(Vec::new()))
+    IntList { inner: Vec::new() }
 }
 
-pub fn int_list_push(il: IntList, val: i32) {
-    il.borrow_mut().push(val);
+pub fn int_list_push(mut il: IntList, val: i32) -> IntList {
+    il.inner.push(val);
+    il
 }
 
 pub fn int_list_len(il: IntList) -> i32 {
-    il.borrow().len() as i32
+    il.inner.len() as i32
 }
 
 pub fn int_list_get(il: IntList, idx: i32) -> i32 {
-    il.borrow()[idx as usize]
+    il.inner[idx as usize]
 }
 
-pub fn int_list_set(il: IntList, idx: i32, val: i32) {
-    il.borrow_mut()[idx as usize] = val;
+pub fn int_list_set(mut il: IntList, idx: i32, val: i32) -> IntList {
+    il.inner[idx as usize] = val;
+    il
 }
 
 /// Check if string starts with prefix
