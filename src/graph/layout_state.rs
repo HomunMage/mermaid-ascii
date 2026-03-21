@@ -260,27 +260,27 @@ pub fn edge_pair_list_get_tgt(epl: EdgePairList, idx: i32) -> String {
 // Stores (from_id, to_id, edge_type, label) tuples.
 // label == "" means no label (the original EdgeData.label was None).
 
-pub type EdgeInfoList =
-    std::rc::Rc<std::cell::RefCell<Vec<(String, String, String, String)>>>;
+#[derive(Clone)]
+pub struct EdgeInfoList { pub inner: Vec<(String, String, String, String)> }
 
 pub fn edge_info_len(el: EdgeInfoList) -> i32 {
-    el.borrow().len() as i32
+    el.inner.len() as i32
 }
 
 pub fn edge_info_src(el: EdgeInfoList, idx: i32) -> String {
-    el.borrow()[idx as usize].0.clone()
+    el.inner[idx as usize].0.clone()
 }
 
 pub fn edge_info_tgt(el: EdgeInfoList, idx: i32) -> String {
-    el.borrow()[idx as usize].1.clone()
+    el.inner[idx as usize].1.clone()
 }
 
 pub fn edge_info_etype(el: EdgeInfoList, idx: i32) -> String {
-    el.borrow()[idx as usize].2.clone()
+    el.inner[idx as usize].2.clone()
 }
 
 pub fn edge_info_label(el: EdgeInfoList, idx: i32) -> String {
-    el.borrow()[idx as usize].3.clone()
+    el.inner[idx as usize].3.clone()
 }
 
 // ── PosMap ────────────────────────────────────────────────────────────────────
@@ -401,7 +401,7 @@ pub fn gw_edges_full(g: Graph) -> EdgeInfoList {
         let label = data.label.clone().unwrap_or_default();
         v.push((from_id, to_id, etype, label));
     }
-    std::rc::Rc::new(std::cell::RefCell::new(v))
+    EdgeInfoList { inner: v }
 }
 
 // ── FAS helpers ───────────────────────────────────────────────────────────────
