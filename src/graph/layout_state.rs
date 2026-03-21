@@ -93,7 +93,7 @@
 //     dummy_edge_list_etype(del, idx)                    -> String
 //     dummy_edge_list_label(del, idx)                    -> String
 //
-//   OrderingList = Rc<RefCell<Vec<StrList>>>
+//   OrderingList = plain struct { inner: Vec<StrList> } (Clone)
 //     (Phase 4: 2D layer ordering; outer index = layer, inner StrList = node IDs)
 //     ordering_new(layer_count: i32)           -> OrderingList
 //     ordering_push(ol, layer_idx: i32, id)
@@ -520,40 +520,38 @@ pub fn dummy_edge_list_label(del: DummyEdgeList, idx: i32) -> String {
 //
 // Outer Vec is indexed by layer (0-based).  Each element is a StrList holding
 // the node IDs assigned to that layer, in the current left-to-right ordering.
-//
-// Using Rc<RefCell<Vec<StrList>>> (rather than Vec<Vec<String>>) means that
-// ordering_get_layer() returns an Rc clone — mutations made via
-// ordering_set_layer() replace the inner StrList pointer, staying visible
-// through all callers.
 
-pub type OrderingList = std::rc::Rc<std::cell::RefCell<Vec<StrList>>>;
+#[derive(Clone)]
+pub struct OrderingList { pub inner: Vec<StrList> }
 
 /// Create an OrderingList with `layer_count` empty layers.
 pub fn ordering_new(layer_count: i32) -> OrderingList {
     let layers: Vec<StrList> = (0..layer_count.max(0) as usize)
         .map(|_| StrList { inner: Vec::new() })
         .collect();
-    std::rc::Rc::new(std::cell::RefCell::new(layers))
+    OrderingList { inner: layers }
 }
 
-/// Append `node_id` to the layer at `layer_idx`.
-pub fn ordering_push(ol: OrderingList, layer_idx: i32, node_id: String) {
-    ol.borrow_mut()[layer_idx as usize].inner.push(node_id);
+/// Append `node_id` to the layer at `layer_idx` and return the modified OrderingList.
+pub fn ordering_push(mut ol: OrderingList, layer_idx: i32, node_id: String) -> OrderingList {
+    ol.inner[layer_idx as usize].inner.push(node_id);
+    ol
 }
 
 /// Return the number of layers.
 pub fn ordering_layer_count(ol: OrderingList) -> i32 {
-    ol.borrow().len() as i32
+    ol.inner.len() as i32
 }
 
-/// Return the StrList for layer `idx` (Rc clone — shares the underlying Vec).
+/// Return the StrList for layer `idx`.
 pub fn ordering_get_layer(ol: OrderingList, idx: i32) -> StrList {
-    ol.borrow()[idx as usize].clone()
+    ol.inner[idx as usize].clone()
 }
 
-/// Replace the StrList for layer `idx` with `layer`.
-pub fn ordering_set_layer(ol: OrderingList, idx: i32, layer: StrList) {
-    ol.borrow_mut()[idx as usize] = layer;
+/// Replace the StrList for layer `idx` with `layer` and return the modified OrderingList.
+pub fn ordering_set_layer(mut ol: OrderingList, idx: i32, layer: StrList) -> OrderingList {
+    ol.inner[idx as usize] = layer;
+    ol
 }
 
 /// Count edge crossings between consecutive layers.
@@ -562,7 +560,7 @@ pub fn ordering_set_layer(ol: OrderingList, idx: i32, layer: StrList) {
 /// and counts inversions — pairs of edges (ei, ej) where
 /// ei.src < ej.src but ei.tgt > ej.tgt (or vice versa).
 pub fn ordering_count_crossings(ol: OrderingList, g: Graph) -> i32 {
-    let layers = ol.borrow();
+    let layers = &ol.inner;
     let layer_count = layers.len();
     let mut total: i32 = 0;
 

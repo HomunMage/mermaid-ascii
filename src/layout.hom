@@ -571,9 +571,9 @@ insert_dummy_nodes := (dag: Graph, la: LayerAssignment) -> AugmentedGraph {
 //          layer-index order (layer 0 = top row in TD layout).
 //
 // Language notes:
-//   (5) OrderingList is Rc<RefCell<Vec<StrList>>> (layout_state.rs).
-//       ordering_push / ordering_set_layer mutate through the Rc so .hom's
-//       implicit .clone() on variable arguments does not lose mutations.
+//   (5) OrderingList is a plain struct { inner: Vec<StrList> } (layout_state.rs).
+//       ordering_push / ordering_set_layer take mut and return the modified list;
+//       call sites rebind: ordering := ordering_push(ordering, ...).
 //   (6) aug.graph clones the full Graph — acceptable since it is used
 //       read-only by ordering_count_crossings and sort_layer_by_barycenter_*.
 //   (7) Early exit uses an `improved` bool flag (mutated with := inside the
@@ -593,7 +593,7 @@ minimise_crossings := (aug: AugmentedGraph) -> OrderingList {
   while (ni < total_nodes) {
     nid       := str_list_get(all_node_ids, ni)
     layer_idx := deg_map_get(aug.layers, nid)
-    ordering_push(ordering, layer_idx, nid)
+    ordering := ordering_push(ordering, layer_idx, nid)
     ni := ni + 1
   }
 
@@ -612,7 +612,7 @@ minimise_crossings := (aug: AugmentedGraph) -> OrderingList {
       prev_pos     := float_map_from_str_list(prev_layer)
       cur_layer    := ordering_get_layer(ordering, fwd)
       sorted_layer := sort_layer_by_barycenter_incoming(cur_layer, aug.graph, prev_pos)
-      ordering_set_layer(ordering, fwd, sorted_layer)
+      ordering := ordering_set_layer(ordering, fwd, sorted_layer)
       fwd := fwd + 1
     }
 
@@ -623,7 +623,7 @@ minimise_crossings := (aug: AugmentedGraph) -> OrderingList {
       next_pos     := float_map_from_str_list(next_layer)
       cur_layer    := ordering_get_layer(ordering, bwd)
       sorted_layer := sort_layer_by_barycenter_outgoing(cur_layer, aug.graph, next_pos)
-      ordering_set_layer(ordering, bwd, sorted_layer)
+      ordering := ordering_set_layer(ordering, bwd, sorted_layer)
       bwd := bwd - 1
     }
 
