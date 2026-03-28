@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.16 — Embedded Runtime + Examples
+
+- Use `homunc --emit-runtime` instead of `src/hom` submodule — runtime is now embedded in the compiler
+- Remove `hom-std` submodule dependency
+- Simplify `build.rs`: no more manual file concatenation
+- Move examples to `_site/examples/` for web playground
+- Add example dropdown selector to playground (like Homun Playground)
+- Update GitHub URL to `homun-lang/mermaid-ascii`
+- Requires homunc v0.79.1+
+
 ## v0.15 — Kill `Rc<RefCell<>>`
 
 - Eliminate all `Rc<RefCell<>>` wrapper types in `layout_state.rs`, replacing with plain structs and return-value mutation

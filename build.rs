@@ -20,78 +20,124 @@ fn main() {
 
     println!("cargo:rustc-env=MERMAID_ASCII_VERSION={}", version);
 
-    // Generate runtime.rs — Homun's builtin + std + re + heap runtime.
-    generate_runtime();
+    let homunc = find_homunc();
+
+    // Generate runtime.rs via homunc --emit-runtime
+    generate_runtime(&homunc);
 
     // Compile .hom files → .rs into OUT_DIR (inside target/).
     // Generated .rs never pollute src/. cargo clean removes everything.
-    compile_hom_files();
+    compile_hom_files(&homunc);
 }
 
-/// Generate runtime.rs in OUT_DIR by concatenating .rs files from src/hom/
-/// (homun-std submodule). No homunc needed — just cat the .rs files together.
-fn generate_runtime() {
+/// Generate runtime.rs in OUT_DIR using `homunc --emit-runtime`.
+/// The runtime (builtin, std, re, heap) is embedded in the homunc binary.
+fn generate_runtime(homunc: &PathBuf) {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let runtime_path = out_dir.join("runtime.rs");
-    let hom = PathBuf::from("src/hom");
 
-    // builtin.rs — macros (range!, len!, filter!, map!, dict!, set!, slice!, homun_in!),
-    // traits (HomunIndex, HomunLen, HomunContains)
-    let builtin = std::fs::read_to_string(hom.join("builtin.rs"))
-        .expect("src/hom/builtin.rs not found — is the hom submodule initialized?");
+    let output = Command::new(homunc)
+        .arg("--emit-runtime")
+        .output()
+        .expect("failed to run homunc --emit-runtime");
 
-    // std/ — standard library (str, math, collection, dict, stack, deque, io)
-    // Read mod.rs but strip include!() lines (we inline the sub-files directly)
-    let std_mod: String = std::fs::read_to_string(hom.join("std/mod.rs"))
-        .unwrap()
-        .lines()
-        .filter(|l| !l.trim().starts_with("include!("))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let std_str = std::fs::read_to_string(hom.join("std/str.rs")).unwrap();
-    let std_math = std::fs::read_to_string(hom.join("std/math.rs")).unwrap();
-    let std_collection = std::fs::read_to_string(hom.join("std/collection.rs")).unwrap();
-    let std_dict = std::fs::read_to_string(hom.join("std/dict.rs")).unwrap();
-    let std_stack = std::fs::read_to_string(hom.join("std/stack.rs")).unwrap();
-    let std_deque = std::fs::read_to_string(hom.join("std/deque.rs")).unwrap();
-    let std_io = std::fs::read_to_string(hom.join("std/io.rs")).unwrap();
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        panic!("homunc --emit-runtime failed: {}", stderr);
+    }
 
-    // re.rs — regex helpers
-    let re = std::fs::read_to_string(hom.join("re.rs")).unwrap();
-    // heap.rs — BinaryHeap helpers (strip duplicate RefCell import)
-    let heap: String = std::fs::read_to_string(hom.join("heap.rs"))
-        .unwrap()
-        .lines()
-        .filter(|l| l.trim() != "use std::cell::RefCell;")
-        .collect::<Vec<_>>()
-        .join("\n");
+    let raw = String::from_utf8(output.stdout).expect("homunc output is not valid UTF-8");
 
-    let code = format!(
-        "// ── builtin ────────────────────────────────────────────────\n\
-         {builtin}\n\n\
-         // ── std ────────────────────────────────────────────────────\n\
-         {std_mod}\n{std_str}\n{std_math}\n{std_collection}\n{std_dict}\n{std_stack}\n{std_deque}\n{std_io}\n\n\
-         // ── re ─────────────────────────────────────────────────────\n\
-         {re}\n\n\
-         // ── heap ───────────────────────────────────────────────────\n\
-         {heap}\n"
-    );
+    // The emitted runtime is designed for standalone files.
+    // When included via include!(), we must:
+    // 1. Strip #![...] inner attributes (not valid inside a module)
+    // 2. Deduplicate imports (use std::cell::RefCell, use std::collections::HashMap, etc.)
+    // 3. Deduplicate function definitions (is_alpha, is_alnum, is_digit)
+    let mut seen_imports: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_fns: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut code = String::with_capacity(raw.len());
+    let mut skip_fn_body = false;
+    let mut brace_depth: i32 = 0;
 
-    // Strip #[cfg(test)] mod tests { ... } blocks from the concatenated runtime
-    // to avoid duplicate `mod tests` errors when all files are in one module.
+    for line in raw.lines() {
+        let trimmed = line.trim();
+
+        // Skip inner attributes
+        if trimmed.starts_with("#![") {
+            continue;
+        }
+
+        // Skip duplicate fn bodies
+        if skip_fn_body {
+            brace_depth += line.chars().filter(|&c| c == '{').count() as i32;
+            brace_depth -= line.chars().filter(|&c| c == '}').count() as i32;
+            if brace_depth <= 0 {
+                skip_fn_body = false;
+            }
+            continue;
+        }
+
+        // Deduplicate `use` imports — track individual items from grouped imports
+        if trimmed.starts_with("use ") && trimmed.ends_with(';') {
+            // Expand `use foo::{A, B};` into individual items for tracking
+            let inner = trimmed.trim_start_matches("use ").trim_end_matches(';');
+            if let Some(brace_start) = inner.find('{') {
+                let prefix = &inner[..brace_start];
+                let items_str = inner[brace_start + 1..].trim_end_matches('}');
+                let mut all_dup = true;
+                for item in items_str.split(',') {
+                    let item = item.trim();
+                    if !item.is_empty() {
+                        let full = format!("use {}{};", prefix, item);
+                        if seen_imports.insert(full) {
+                            all_dup = false;
+                        }
+                    }
+                }
+                if all_dup {
+                    continue;
+                }
+            } else if !seen_imports.insert(trimmed.to_string()) {
+                continue;
+            }
+        }
+
+        // Deduplicate `pub fn` definitions
+        if trimmed.starts_with("pub fn ") {
+            let sig = trimmed.split('{').next().unwrap_or(trimmed).trim();
+            if !seen_fns.insert(sig.to_string()) {
+                // Strip preceding doc comments that were buffered
+                while code.ends_with('\n') {
+                    let last_line_start = code[..code.len() - 1].rfind('\n').map_or(0, |i| i + 1);
+                    let last_line = code[last_line_start..code.len() - 1].trim();
+                    if last_line.starts_with("///") || last_line.is_empty() {
+                        code.truncate(last_line_start);
+                    } else {
+                        break;
+                    }
+                }
+                // Skip this duplicate function body
+                brace_depth = line.chars().filter(|&c| c == '{').count() as i32
+                    - line.chars().filter(|&c| c == '}').count() as i32;
+                if brace_depth > 0 {
+                    skip_fn_body = true;
+                }
+                continue;
+            }
+        }
+
+        code.push_str(line);
+        code.push('\n');
+    }
+
+    // Strip #[cfg(test)] mod tests { ... } blocks to avoid duplicates
     let code = strip_test_modules(&code);
 
     std::fs::write(&runtime_path, &code).unwrap();
     println!(
-        "cargo:warning=Generated runtime.rs ({} bytes) from src/hom/",
+        "cargo:warning=Generated runtime.rs ({} bytes) via homunc --emit-runtime",
         code.len()
     );
-
-    // Rerun if any hom runtime file changes
-    println!("cargo:rerun-if-changed=src/hom/builtin.rs");
-    println!("cargo:rerun-if-changed=src/hom/std/mod.rs");
-    println!("cargo:rerun-if-changed=src/hom/re.rs");
-    println!("cargo:rerun-if-changed=src/hom/heap.rs");
 }
 
 fn find_homunc() -> PathBuf {
@@ -123,9 +169,8 @@ fn find_homunc() -> PathBuf {
     panic!("Cannot find or download homunc");
 }
 
-fn compile_hom_files() {
+fn compile_hom_files(homunc: &PathBuf) {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let homunc = find_homunc();
 
     let Ok(entries) = std::fs::read_dir("src") else {
         return;
@@ -146,7 +191,7 @@ fn compile_hom_files() {
                     .unwrap_or(true);
 
             if needs_compile {
-                let status = Command::new(&homunc)
+                let status = Command::new(homunc)
                     .args([
                         "--module",
                         &path.to_string_lossy(),
@@ -156,11 +201,6 @@ fn compile_hom_files() {
                     .status();
                 match status {
                     Ok(s) if s.success() => {
-                        // Strip duplicate #[cfg(test)] mod tests blocks from inlined deps
-                        if let Ok(content) = std::fs::read_to_string(&rs_path) {
-                            let cleaned = strip_test_modules(&content);
-                            let _ = std::fs::write(&rs_path, cleaned);
-                        }
                         println!(
                             "cargo:warning=Compiled {} -> {}",
                             path.display(),
@@ -184,33 +224,29 @@ fn compile_hom_files() {
     }
 }
 
-/// Strip `#[cfg(test)] mod tests { ... }` blocks from concatenated Rust source.
+/// Strip `#[cfg(test)] mod tests { ... }` blocks from Rust source.
 /// Handles nested braces correctly by counting brace depth.
 fn strip_test_modules(src: &str) -> String {
     let mut result = String::with_capacity(src.len());
     let mut lines = src.lines().peekable();
     while let Some(line) = lines.next() {
         let trimmed = line.trim();
-        if trimmed == "#[cfg(test)]" {
-            // Peek: if next non-empty line starts with "mod tests", skip the whole block
-            if let Some(&next) = lines.peek()
-                && next.trim().starts_with("mod tests")
-            {
-                // Skip the #[cfg(test)] line and the mod tests { ... } block
-                let mod_line = lines.next().unwrap();
-                // Count braces to find the matching close
-                let mut depth: i32 = mod_line.chars().filter(|&c| c == '{').count() as i32
-                    - mod_line.chars().filter(|&c| c == '}').count() as i32;
-                while depth > 0 {
-                    if let Some(inner) = lines.next() {
-                        depth += inner.chars().filter(|&c| c == '{').count() as i32;
-                        depth -= inner.chars().filter(|&c| c == '}').count() as i32;
-                    } else {
-                        break;
-                    }
+        if trimmed == "#[cfg(test)]"
+            && let Some(&next) = lines.peek()
+            && next.trim().starts_with("mod tests")
+        {
+            let mod_line = lines.next().unwrap();
+            let mut depth: i32 = mod_line.chars().filter(|&c| c == '{').count() as i32
+                - mod_line.chars().filter(|&c| c == '}').count() as i32;
+            while depth > 0 {
+                if let Some(inner) = lines.next() {
+                    depth += inner.chars().filter(|&c| c == '{').count() as i32;
+                    depth -= inner.chars().filter(|&c| c == '}').count() as i32;
+                } else {
+                    break;
                 }
-                continue;
             }
+            continue;
         }
         result.push_str(line);
         result.push('\n');
